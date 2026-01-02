@@ -23,23 +23,41 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _checkAuthenticationAndNavigate() async {
-    // Wait for initialization to complete
+    print('🔄 SplashScreen: Starting authentication check');
+
+    // Wait for initialization
     await Future.delayed(const Duration(milliseconds: 1500));
-    
-    if (!mounted) return;
-    
+
+    if (!mounted) {
+      print('❌ SplashScreen: Not mounted, exiting');
+      return;
+    }
+
+    print('🔄 SplashScreen: Getting UserProvider');
     final userProvider = Provider.of<UserProvider>(context, listen: false);
+
+    print('🔄 SplashScreen: Calling userProvider.initialize()');
     await userProvider.initialize();
-    
-    // Show splash for at least 3 seconds
+
+    print('✅ SplashScreen: UserProvider initialized');
+    print('   ├─ isAuthenticated: ${userProvider.isAuthenticated}');
+    print('   ├─ currentUser: ${userProvider.currentUser?.email}');
+
+    // Show splash for at least 3 seconds total
     await Future.delayed(const Duration(milliseconds: 1500));
-    
-    if (!mounted) return;
-    
+
+    if (!mounted) {
+      print('❌ SplashScreen: Not mounted after delay, exiting');
+      return;
+    }
+
     if (userProvider.isAuthenticated) {
+      print('🚀 SplashScreen: User IS authenticated, going to /dashboard');
       context.go('/dashboard');
     } else {
-      context.go('/login');
+      print('🚀 SplashScreen: User NOT authenticated, going to /');
+      print('   ├─ This should redirect to /onboarding via root route');
+      context.go('/');
     }
   }
 
@@ -51,27 +69,26 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Scaffold(
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.school, size: 80, color: theme.colorScheme.primary),
-            const SizedBox(height: 16),
-            Text('CDAX', style: theme.textTheme.headlineLarge),
-            const SizedBox(height: 8),
-            Text(
-              'Learn. Grow. Excel.',
-              style: theme.textTheme.bodyLarge?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
+            // Icon(Icons.school, size: 80, color: theme.colorScheme.primary),
+            // const SizedBox(height: 16),
+            // Text('CDAX', style: theme.textTheme.headlineLarge),
+            // const SizedBox(height: 8),
+            // Text(
+            //   'Learn. Grow. Excel.',
+            //   style: theme.textTheme.bodyLarge?.copyWith(
+            //     color: theme.colorScheme.onSurfaceVariant,
+            //   ),
+            // ),
+
+            Image(image: AssetImage('assets/images/logo.png'), height: 120),
           ],
         ),
       ),
     );
   }
 }
-
-

@@ -3,7 +3,7 @@
 import '../core/base_api_service.dart';
 import '../core/api_response.dart';
 import '../models/user_model.dart';
-import '../models/course_model.dart';
+import '../models/backend/course_model.dart';
 import '../models/performance_model.dart';
 import '../config/api_constants.dart';
 
@@ -78,6 +78,34 @@ class ApiService extends BaseApiService {
       fromJson: (json) => (json as List)
           .map((e) => PerformanceModel.fromJson(e))
           .toList(),
+    );
+  }
+  Future<ApiResponse<Map<String, dynamic>>> getCourseStreak(String courseId, String userId) async {
+    return await get<Map<String, dynamic>>(
+      '/api/streak/course/$courseId?userId=$userId',
+      fromJson: (json) => json as Map<String, dynamic>,
+    );
+  }
+
+  Future<ApiResponse<Map<String, dynamic>>> getStreakOverview(String userId) async {
+    return await get<Map<String, dynamic>>(
+      '/api/streak/overview?userId=$userId',
+      fromJson: (json) => json as Map<String, dynamic>,
+    );
+  }
+
+  Future<ApiResponse<Map<String, dynamic>>> getDayDetails(String userId, String courseId, String date) async {
+    return await get<Map<String, dynamic>>(
+      '/api/streak/day-details?userId=$userId&courseId=$courseId&date=$date',
+      fromJson: (json) => json as Map<String, dynamic>,
+    );
+  }
+
+  Future<ApiResponse<Map<String, dynamic>>> updateVideoProgress(Map<String, dynamic> data) async {
+    return await post<Map<String, dynamic>>(
+      '/api/video/progress/update',
+      body: data,
+      fromJson: (json) => json as Map<String, dynamic>,
     );
   }
 }

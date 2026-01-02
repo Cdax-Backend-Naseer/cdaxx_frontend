@@ -8,6 +8,9 @@ import 'models/course.dart';
 /// CourseRepository interface
 /// Implementations should provide methods for course data access
 abstract class CourseRepository {
+  // PUBLIC COURSES (No login required)
+  Future<List<Course>> getPublicCourses();
+
   Future<List<Course>> getCourses({String? search, int page = 1});
   Future<Course> getCourseById(String id);
   Future<bool> enrollInCourse(String courseId);

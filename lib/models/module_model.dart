@@ -11,6 +11,7 @@ class ModuleModel {
   final bool isPreview;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final bool isLocked;
   final List<LessonModel> lessons;
   final ModuleProgress? progress;
   
@@ -25,6 +26,7 @@ class ModuleModel {
     required this.isPreview,
     required this.createdAt,
     required this.updatedAt,
+    required this.isLocked,
     required this.lessons,
     this.progress,
   });
@@ -48,7 +50,10 @@ class ModuleModel {
     }
     return '${minutes}m';
   }
-  
+
+
+
+
   factory ModuleModel.fromJson(Map<String, dynamic> json) {
     return ModuleModel(
       id: json['id']?.toString() ?? '',
@@ -57,6 +62,7 @@ class ModuleModel {
       description: json['description']?.toString() ?? '',
       orderIndex: json['orderIndex'] ?? 0,
       duration: json['duration'] ?? 0,
+      isLocked: json['isLocked'] ?? false,
       isPublished: json['isPublished'] ?? false,
       isPreview: json['isPreview'] ?? false,
       createdAt: json['createdAt'] != null 
@@ -84,6 +90,7 @@ class ModuleModel {
       'duration': duration,
       'isPublished': isPublished,
       'isPreview': isPreview,
+      'isLocked': isLocked,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
       'lessons': lessons.map((e) => e.toJson()).toList(),
@@ -100,6 +107,7 @@ class ModuleModel {
     int? duration,
     bool? isPublished,
     bool? isPreview,
+    bool ? isLocked,
     DateTime? createdAt,
     DateTime? updatedAt,
     List<LessonModel>? lessons,
@@ -114,6 +122,7 @@ class ModuleModel {
       duration: duration ?? this.duration,
       isPublished: isPublished ?? this.isPublished,
       isPreview: isPreview ?? this.isPreview,
+      isLocked: isLocked ?? this.isLocked,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       lessons: lessons ?? this.lessons,

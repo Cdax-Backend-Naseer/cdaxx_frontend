@@ -20,10 +20,14 @@ class SuggestiveLearningCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Material(
-      color: theme.colorScheme.surface,
-      elevation: 2,
-      borderRadius: BorderRadius.circular(14),
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        color: Colors.white.withOpacity(0.08), // Glass effect background
+        border: Border.all(
+          color: Colors.white.withOpacity(0.12),
+        ),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
@@ -33,7 +37,12 @@ class SuggestiveLearningCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(10),
               child: AspectRatio(
                 aspectRatio: 16 / 9,
-                child: Image.network(imageUrl, fit: BoxFit.cover),
+                child: Image.network(
+                  imageUrl,
+                  fit: BoxFit.cover,
+                  colorBlendMode: BlendMode.darken,
+                  color: Colors.black.withOpacity(0.1),
+                ),
               ),
             ),
             const SizedBox(height: 12),
@@ -41,10 +50,16 @@ class SuggestiveLearningCard extends StatelessWidget {
               title,
               style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w700,
+                color: Colors.white, // White text for dark theme
               ),
             ),
             const SizedBox(height: 6),
-            Text(description, style: theme.textTheme.bodyMedium),
+            Text(
+              description,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: Colors.white70, // Light white for description
+              ),
+            ),
             const SizedBox(height: 12),
             AppButton(
               onPressed: onPressed,
@@ -57,5 +72,3 @@ class SuggestiveLearningCard extends StatelessWidget {
     );
   }
 }
-
-

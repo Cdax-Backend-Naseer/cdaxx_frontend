@@ -1,5 +1,3 @@
-// ASSUMPTION: Simple form to edit name/phone; returns updated profile via Navigator.pop.
-
 import 'package:flutter/material.dart';
 import '../application/profile_provider.dart';
 
@@ -20,13 +18,14 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   @override
   void initState() {
     super.initState();
-    final p = widget.initial ?? const UserProfile(
-      name: 'Jane Doe',
-      email: 'jane@example.com',
-      phone: '+1 555 0100',
-      enrolledCoursesCount: 2,
-      subscribed: true,
-    );
+    final p = widget.initial ??
+        const UserProfile(
+          name: 'Jane Doe',
+          email: 'jane@example.com',
+          phone: '+1 555 0100',
+          enrolledCoursesCount: 2,
+          subscribed: true,
+        );
     _name = TextEditingController(text: p.name);
     _phone = TextEditingController(text: p.phone);
   }
@@ -40,15 +39,26 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final profile = widget.initial ?? const UserProfile(
-      name: 'Jane Doe',
-      email: 'jane@example.com',
-      phone: '+1 555 0100',
-      enrolledCoursesCount: 2,
-      subscribed: true,
-    );
+    final profile = widget.initial ??
+        const UserProfile(
+          name: '',
+          email: '',
+          phone: '',
+          enrolledCoursesCount: 1,
+          subscribed: true,
+        );
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Edit Profile')),
+      backgroundColor: const Color(0xFF0F172A), // Dark background
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.white),
+        title: const Text(
+          'Edit Profile',
+          style: TextStyle(color: Colors.white),
+        ),
+      ),
       body: Form(
         key: _formKey,
         child: ListView(
@@ -56,7 +66,17 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
           children: [
             TextFormField(
               controller: _name,
-              decoration: const InputDecoration(labelText: 'Name'),
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                labelText: 'Name',
+                labelStyle: const TextStyle(color: Colors.white70),
+                filled: true,
+                fillColor: Colors.white.withOpacity(0.08),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide.none,
+                ),
+              ),
               textInputAction: TextInputAction.next,
               validator: (v) {
                 if (v == null || v.trim().isEmpty) return 'Name is required';
@@ -67,13 +87,33 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
             const SizedBox(height: 8),
             TextFormField(
               initialValue: profile.email,
-              decoration: const InputDecoration(labelText: 'Email'),
+              style: const TextStyle(color: Colors.white70),
+              decoration: InputDecoration(
+                labelText: 'Email',
+                labelStyle: const TextStyle(color: Colors.white70),
+                filled: true,
+                fillColor: Colors.white.withOpacity(0.08),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide.none,
+                ),
+              ),
               readOnly: true,
             ),
             const SizedBox(height: 8),
             TextFormField(
               controller: _phone,
-              decoration: const InputDecoration(labelText: 'Phone'),
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                labelText: 'Phone',
+                labelStyle: const TextStyle(color: Colors.white70),
+                filled: true,
+                fillColor: Colors.white.withOpacity(0.08),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide.none,
+                ),
+              ),
               keyboardType: TextInputType.phone,
               textInputAction: TextInputAction.done,
               validator: (v) {
@@ -85,19 +125,23 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
             ),
             const SizedBox(height: 16),
             FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF38BDF8),
+                foregroundColor: Colors.white,
+              ),
               onPressed: _saving
                   ? null
                   : () async {
-                      if (!_formKey.currentState!.validate()) return;
-                      setState(() => _saving = true);
-                      final updated = profile.copyWith(
-                        name: _name.text.trim(),
-                        phone: _phone.text.trim(),
-                      );
-                      if (!mounted) return;
-                      setState(() => _saving = false);
-                      Navigator.of(context).pop<UserProfile>(updated);
-                    },
+                if (!_formKey.currentState!.validate()) return;
+                setState(() => _saving = true);
+                final updated = profile.copyWith(
+                  name: _name.text.trim(),
+                  phone: _phone.text.trim(),
+                );
+                if (!mounted) return;
+                setState(() => _saving = false);
+                Navigator.of(context).pop<UserProfile>(updated);
+              },
               child: Text(_saving ? 'Saving...' : 'Save'),
             ),
           ],
@@ -106,5 +150,3 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     );
   }
 }
-
-

@@ -26,14 +26,14 @@ class ApiEndpoints {
   // User endpoints
   static const String userProfile = '$users/profile';
   static const String updateProfile = '$users/profile';
-  static const String userCourses = '$users/courses';
+  static const String userCourses = '/api/courses/user';
   static const String userAssessments = '$users/assessments';
   static const String userJobs = '$users/jobs';
   static const String userProgress = '$users/progress';
   static const String userAchievements = '$users/achievements';
-  
+
   // Course endpoints
-  static const String allCourses = courses;
+  static const String allCourses = '/courses';
   static const String courseDetails = '$courses/{id}';
   static const String courseContent = '$courses/{id}/content';
   static const String courseEnroll = '$courses/{id}/enroll';
@@ -75,12 +75,18 @@ class ApiEndpoints {
   static const String markAllAsRead = '$notifications/mark-all-read';
   static const String notificationSettings = '$notifications/settings';
   
+  // Dashboard endpoints
+  static const String dashboardPublic = '/dashboard/public';
+  static const String dashboardUser = '$users/{userId}/dashboard';
+  static const String userActivity = '$users/{userId}/activity';
+  // static const String dashboardCourses = '/dashboard/courses';
+  
   // Analytics endpoints
   static const String userAnalytics = '$analytics/user';
   static const String courseAnalytics = '$analytics/courses';
   static const String assessmentAnalytics = '$analytics/assessments';
   static const String dashboardStats = '$analytics/dashboard';
-  
+
   // Utility method to replace path parameters
   static String replacePathParams(String endpoint, Map<String, String> params) {
     String result = endpoint;

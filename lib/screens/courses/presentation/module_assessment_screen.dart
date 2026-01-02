@@ -11,7 +11,7 @@ class ModuleAssessmentScreen extends StatefulWidget {
     required this.moduleId,
     required this.assessmentId,
   });
-  
+
   final String courseId;
   final String moduleId;
   final String assessmentId;
@@ -40,27 +40,31 @@ class _ModuleAssessmentScreenState extends State<ModuleAssessmentScreen> {
   }
 
   Future<void> _loadQuestions() async {
-    print('🎯 ModuleAssessmentScreen: Loading questions for assessment ${widget.assessmentId}');
+    print(
+      '🎯 ModuleAssessmentScreen: Loading questions for assessment ${widget.assessmentId}',
+    );
     try {
       final repo = CourseProviders.getCourseRepository();
       print('📚 Using repository: ${repo.runtimeType}');
-      
-      final fetchedQuestions = await repo.getAssessmentQuestions(widget.assessmentId);
+
+      final fetchedQuestions = await repo.getAssessmentQuestions(
+        widget.assessmentId,
+      );
       print('✅ Fetched ${fetchedQuestions.length} questions');
-      
+
       for (int i = 0; i < fetchedQuestions.length; i++) {
         final q = fetchedQuestions[i];
         print('   Q${i + 1}: ${q.question}');
         print('        Options: ${q.options}');
         print('        Correct: ${q.correctAnswer}');
       }
-      
+
       setState(() {
         questions = fetchedQuestions;
         userAnswers = List<int?>.filled(fetchedQuestions.length, null);
         isLoading = false;
       });
-      
+
       print('📝 Questions loaded successfully into UI');
     } catch (e) {
       print('❌ Error loading questions: $e');
@@ -96,67 +100,99 @@ class _ModuleAssessmentScreenState extends State<ModuleAssessmentScreen> {
   void _submitAssessment() {
     // Calculate score
     int correctAnswers = 0;
+    print('\n🎯 Assessment Scoring Debug:');
     for (int i = 0; i < questions.length; i++) {
-      if (userAnswers[i] != null && userAnswers[i] == questions[i].correctAnswer) {
+      final userAnswer = userAnswers[i];
+      final correctAnswer = questions[i].correctAnswer;
+
+      // Robust comparison - handle type mismatches
+      bool isCorrect = false;
+      if (userAnswer != null) {
+        // Convert both to int for comparison
+        try {
+          int userInt = userAnswer;
+          int correctInt =
+              correctAnswer is int
+                  ? correctAnswer
+                  : int.parse(correctAnswer.toString());
+          isCorrect = userInt == correctInt;
+        } catch (e) {
+          // Fallback to direct comparison
+          isCorrect = userAnswer == correctAnswer;
+        }
+      }
+
+      print(
+        '   Q${i + 1}: User answered ${userAnswer} | Correct: ${correctAnswer} | Match: ${isCorrect}',
+      );
+      print(
+        '       User answer type: ${userAnswer.runtimeType} | Correct answer type: ${correctAnswer.runtimeType}',
+      );
+
+      if (isCorrect) {
         correctAnswers++;
       }
     }
-    
+    print('   Final score: $correctAnswers/${questions.length}');
+
     final double percentage = (correctAnswers / questions.length) * 100;
-    
+
     // Show results dialog
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('Assessment Complete'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              percentage >= 70 ? Icons.check_circle : Icons.cancel,
-              size: 64,
-              color: percentage >= 70 ? Colors.green : Colors.red,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Assessment Complete'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  percentage >= 70 ? Icons.check_circle : Icons.cancel,
+                  size: 64,
+                  color: percentage >= 70 ? Colors.green : Colors.red,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'You scored ${percentage.toStringAsFixed(1)}%',
+                  style: Theme.of(context).textTheme.titleLarge,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '$correctAnswers out of ${questions.length} questions correct',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  percentage >= 70
+                      ? 'Congratulations! You passed!'
+                      : 'Please review the material and try again.',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                  textAlign: TextAlign.center,
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
-            Text(
-              'You scored ${percentage.toStringAsFixed(1)}%',
-              style: Theme.of(context).textTheme.titleLarge,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '$correctAnswers out of ${questions.length} questions correct',
-              style: Theme.of(context).textTheme.bodyMedium,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              percentage >= 70 ? 'Congratulations! You passed!' : 'Please review the material and try again.',
-              style: Theme.of(context).textTheme.bodyMedium,
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              context.go('/dashboard/courses/${widget.courseId}/module/${widget.moduleId}');
-            },
-            child: const Text('Back to Module'),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  context.go(
+                    '/dashboard/courses/${widget.courseId}/module/${widget.moduleId}',
+                  );
+                },
+                child: const Text('Back to Module'),
+              ),
+            ],
           ),
-        ],
-      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     if (isLoading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     if (error != null) {
@@ -165,7 +201,10 @@ class _ModuleAssessmentScreenState extends State<ModuleAssessmentScreen> {
           title: const Text('Assessment'),
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
-            onPressed: () => context.go('/dashboard/courses/${widget.courseId}/module/${widget.moduleId}'),
+            onPressed:
+                () => context.go(
+                  '/dashboard/courses/${widget.courseId}/module/${widget.moduleId}',
+                ),
           ),
         ),
         body: Center(
@@ -185,7 +224,10 @@ class _ModuleAssessmentScreenState extends State<ModuleAssessmentScreen> {
               ),
               const SizedBox(height: 16),
               ElevatedButton(
-                onPressed: () => context.go('/dashboard/courses/${widget.courseId}/module/${widget.moduleId}'),
+                onPressed:
+                    () => context.go(
+                      '/dashboard/courses/${widget.courseId}/module/${widget.moduleId}',
+                    ),
                 child: const Text('Back to Module'),
               ),
             ],
@@ -200,7 +242,10 @@ class _ModuleAssessmentScreenState extends State<ModuleAssessmentScreen> {
           title: const Text('Assessment'),
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
-            onPressed: () => context.go('/dashboard/courses/${widget.courseId}/module/${widget.moduleId}'),
+            onPressed:
+                () => context.go(
+                  '/dashboard/courses/${widget.courseId}/module/${widget.moduleId}',
+                ),
           ),
         ),
         body: const Center(
@@ -219,7 +264,10 @@ class _ModuleAssessmentScreenState extends State<ModuleAssessmentScreen> {
         title: Text('Question ${currentQuestionIndex + 1} of $totalQuestions'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.go('/dashboard/courses/${widget.courseId}/module/${widget.moduleId}'),
+          onPressed:
+              () => context.go(
+                '/dashboard/courses/${widget.courseId}/module/${widget.moduleId}',
+              ),
         ),
       ),
       body: Column(
@@ -227,10 +275,13 @@ class _ModuleAssessmentScreenState extends State<ModuleAssessmentScreen> {
           // Progress indicator
           LinearProgressIndicator(
             value: (currentQuestionIndex + 1) / totalQuestions,
-            backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-            valueColor: AlwaysStoppedAnimation<Color>(Theme.of(context).colorScheme.primary),
+            backgroundColor:
+                Theme.of(context).colorScheme.surfaceContainerHighest,
+            valueColor: AlwaysStoppedAnimation<Color>(
+              Theme.of(context).colorScheme.primary,
+            ),
           ),
-          
+
           // Question content
           Expanded(
             child: SingleChildScrollView(
@@ -248,20 +299,21 @@ class _ModuleAssessmentScreenState extends State<ModuleAssessmentScreen> {
                       ),
                     ),
                   ),
-                  
+
                   const SizedBox(height: 16),
-                  
+
                   // Answer options
                   ...currentQuestion.options.asMap().entries.map((entry) {
                     final index = entry.key;
                     final option = entry.value;
                     final isSelected = selectedAnswer == index;
-                    
+
                     return Card(
                       margin: const EdgeInsets.only(bottom: 8),
-                      color: isSelected 
-                        ? Theme.of(context).colorScheme.primaryContainer
-                        : null,
+                      color:
+                          isSelected
+                              ? Theme.of(context).colorScheme.primaryContainer
+                              : null,
                       child: InkWell(
                         onTap: () => _selectAnswer(index),
                         borderRadius: BorderRadius.circular(12),
@@ -295,7 +347,7 @@ class _ModuleAssessmentScreenState extends State<ModuleAssessmentScreen> {
               ),
             ),
           ),
-          
+
           // Navigation buttons
           Container(
             padding: const EdgeInsets.all(16),
@@ -315,19 +367,23 @@ class _ModuleAssessmentScreenState extends State<ModuleAssessmentScreen> {
                   // Previous button
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: currentQuestionIndex > 0 ? _previousQuestion : null,
+                      onPressed:
+                          currentQuestionIndex > 0 ? _previousQuestion : null,
                       child: const Text('Previous'),
                     ),
                   ),
-                  
+
                   const SizedBox(width: 16),
-                  
+
                   // Next/Submit button
                   Expanded(
                     child: ElevatedButton(
-                      onPressed: selectedAnswer != null
-                        ? (isLastQuestion ? _submitAssessment : _nextQuestion)
-                        : null,
+                      onPressed:
+                          selectedAnswer != null
+                              ? (isLastQuestion
+                                  ? _submitAssessment
+                                  : _nextQuestion)
+                              : null,
                       child: Text(isLastQuestion ? 'Submit' : 'Next'),
                     ),
                   ),

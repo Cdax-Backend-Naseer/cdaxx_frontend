@@ -1,7 +1,4 @@
-// Assumptions
-// - Provider-based state management using simple mock accessors.
-// - Replace with real repository/services when backend is available.
-// - Keep model lightweight and serializable-friendly.
+import 'package:flutter/foundation.dart';
 
 class Course {
   const Course({
@@ -10,49 +7,57 @@ class Course {
     required this.thumbnailUrl,
     required this.progressPercent,
     this.description = '',
-    this.isLocked = false,
+    this.totalModules = 0,
+    this.formattedDuration = '',
+    this.isSubscribed = false,
   });
 
   final String id;
   final String title;
   final String thumbnailUrl;
-  final double progressPercent; // 0.0 - 1.0
-  final String description; // short summary shown on dashboard card
-  final bool isLocked;
+  final double progressPercent;
+  final String description;
+  final int totalModules;
+  final String formattedDuration;
+  final bool isSubscribed;
 }
 
-/// TODO: Integrate authenticated user info
-String getMockUserName() => 'Rohit';
+class DashboardProvider extends ChangeNotifier {
+  bool _isLoading = false;
+  String? _error;
 
-/// Mock: Enrolled courses for the user
-Future<List<Course>> getMockEnrolledCourses() async {
-  await Future<void>.delayed(const Duration(milliseconds: 300));
-  return const [
-    Course(
-      id: 'c1',
-      title: 'Flutter Foundations',
-      thumbnailUrl: 'https://picsum.photos/seed/flutter_foundations/400/240',
-      progressPercent: 0.62,
-      description: 'Master widgets, layouts, and state basics.',
-      isLocked: false,
-    ),
-    Course(
-      id: 'c2',
-      title: 'Dart Essentials',
-      thumbnailUrl: 'https://picsum.photos/seed/dart_essentials/400/240',
-      progressPercent: 0.35,
-      description: 'Core Dart language features for Flutter devs.',
-      isLocked: false,
-    ),
-    Course(
-      id: 'c3',
-      title: 'UI/UX Basics',
-      thumbnailUrl: 'https://picsum.photos/seed/ui_ux_basics/400/240',
-      progressPercent: 0.12,
-      description: 'Design fundamentals and accessibility.',
-      isLocked: true,
-    ),
-  ];
+  List<Course> _enrolledCourses = [];
+
+  bool get isLoading => _isLoading;
+  String? get error => _error;
+  List<Course> get enrolledCourses => _enrolledCourses;
+
+  Future<void> loadDashboard() async {
+    if (_isLoading) return;
+
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      // 🔥 REPLACE with real API call
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      _enrolledCourses = [
+        Course(
+          id: 'c1',
+          title: 'Flutter Foundations',
+          thumbnailUrl: '',
+          progressPercent: 0.4,
+          isSubscribed: true,
+        ),
+      ];
+
+    } catch (e) {
+      _error = e.toString();
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
 }
-
 

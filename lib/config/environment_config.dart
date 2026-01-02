@@ -22,13 +22,16 @@ class EnvironmentConfig {
     }
   }
   
-  static const Map<String, dynamic> developmentConfig = {
-    'baseUrl': 'https://cdax-assessment-hosting-f284.onrender.com',
+  static final Map<String, dynamic> developmentConfig = {
+    // 'baseUrl': 'https://cdax-assessment-hosting-f284.onrender.com',
+    'baseUrl': 'http://192.168.1.13:8080',
     'apiVersion': '/api',
     'enableLogging': true,
     'enableDebugMode': true,
     'databaseUrl': 'localhost:5432/cdax_dev',
   };
+
+
   
   static const Map<String, dynamic> stagingConfig = {
     'baseUrl': 'https://staging-api.cdax.com',

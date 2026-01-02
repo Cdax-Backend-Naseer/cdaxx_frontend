@@ -14,8 +14,9 @@ class UserModel {
   final bool isEmailVerified;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final bool isNewUser;
   final UserPreferences? preferences;
-  
+
   UserModel({
     required this.id,
     required this.email,
@@ -31,39 +32,49 @@ class UserModel {
     required this.createdAt,
     required this.updatedAt,
     this.preferences,
+    required this.isNewUser,
   });
-  
+
   String get fullName => '$firstName $lastName';
-  
+
   String get displayName => fullName.isNotEmpty ? fullName : email;
-  
+
+  static String _parseIdSafely(dynamic value) {
+    if (value == null) return '';
+    if (value is String) return value;
+    if (value is int) return value.toString();
+    if (value is num) return value.toString();
+    return value.toString();
+  }
+
   factory UserModel.fromJson(Map<String, dynamic> json) {
     return UserModel(
-      id: json['id']?.toString() ?? '',
+      id: _parseIdSafely(json['id']),
       email: json['email']?.toString() ?? '',
       firstName: json['firstName']?.toString() ?? '',
       lastName: json['lastName']?.toString() ?? '',
       phoneNumber: json['phoneNumber']?.toString(),
       profileImage: json['profileImage']?.toString(),
-      dateOfBirth: json['dateOfBirth'] != null 
+      dateOfBirth: json['dateOfBirth'] != null
           ? DateTime.tryParse(json['dateOfBirth'].toString())
           : null,
       address: json['address']?.toString(),
       role: json['role']?.toString() ?? 'USER',
       isActive: json['isActive'] ?? true,
       isEmailVerified: json['isEmailVerified'] ?? false,
-      createdAt: json['createdAt'] != null 
+      createdAt: json['createdAt'] != null
           ? DateTime.parse(json['createdAt'].toString())
           : DateTime.now(),
-      updatedAt: json['updatedAt'] != null 
+      updatedAt: json['updatedAt'] != null
           ? DateTime.parse(json['updatedAt'].toString())
           : DateTime.now(),
-      preferences: json['preferences'] != null 
+      preferences: json['preferences'] != null
           ? UserPreferences.fromJson(json['preferences'])
           : null,
+      isNewUser: json['isNewUser'] == 1 || json['isNewUser'] == true,
     );
   }
-  
+
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -80,9 +91,10 @@ class UserModel {
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
       'preferences': preferences?.toJson(),
+      'isNewUser': isNewUser,
     };
   }
-  
+
   UserModel copyWith({
     String? id,
     String? email,
@@ -98,6 +110,7 @@ class UserModel {
     DateTime? createdAt,
     DateTime? updatedAt,
     UserPreferences? preferences,
+    bool? isNewUser,
   }) {
     return UserModel(
       id: id ?? this.id,
@@ -114,24 +127,26 @@ class UserModel {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       preferences: preferences ?? this.preferences,
+      isNewUser: isNewUser ?? this.isNewUser,
     );
   }
-  
+
   @override
   String toString() {
-    return 'UserModel(id: $id, email: $email, fullName: $fullName)';
+    return 'UserModel(id: $id, email: $email, fullName: $fullName, isNewUser: $isNewUser)';
   }
-  
+
   @override
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
     return other is UserModel && other.id == id;
   }
-  
+
   @override
   int get hashCode => id.hashCode;
 }
 
+/// User Preferences Model
 class UserPreferences {
   final bool notificationsEnabled;
   final bool emailNotifications;
@@ -139,7 +154,7 @@ class UserPreferences {
   final String theme; // 'light', 'dark', 'system'
   final String language;
   final bool analyticsEnabled;
-  
+
   UserPreferences({
     required this.notificationsEnabled,
     required this.emailNotifications,
@@ -148,7 +163,7 @@ class UserPreferences {
     required this.language,
     required this.analyticsEnabled,
   });
-  
+
   factory UserPreferences.fromJson(Map<String, dynamic> json) {
     return UserPreferences(
       notificationsEnabled: json['notificationsEnabled'] ?? true,
@@ -159,7 +174,7 @@ class UserPreferences {
       analyticsEnabled: json['analyticsEnabled'] ?? false,
     );
   }
-  
+
   Map<String, dynamic> toJson() {
     return {
       'notificationsEnabled': notificationsEnabled,
@@ -170,7 +185,7 @@ class UserPreferences {
       'analyticsEnabled': analyticsEnabled,
     };
   }
-  
+
   UserPreferences copyWith({
     bool? notificationsEnabled,
     bool? emailNotifications,

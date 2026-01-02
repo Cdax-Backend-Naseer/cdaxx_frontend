@@ -15,11 +15,12 @@ class ProgressCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Material(
-      color: theme.cardColor,
-      elevation: 2,
-      borderRadius: BorderRadius.circular(14),
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        color: Colors.white.withOpacity(0.08),
+        border: Border.all(color: Colors.white.withOpacity(0.12)),
+      ),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(14),
@@ -33,8 +34,10 @@ class ProgressCard extends StatelessWidget {
                 title,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodyMedium?.copyWith(
+                style: const TextStyle(
+                  color: Colors.white,
                   fontWeight: FontWeight.w600,
+                  fontSize: 14,
                 ),
               ),
               const SizedBox(height: 10),
@@ -43,11 +46,18 @@ class ProgressCard extends StatelessWidget {
                 child: LinearProgressIndicator(
                   minHeight: 8,
                   value: progress.clamp(0.0, 1.0),
+                  backgroundColor: Colors.white.withOpacity(0.1),
+                  color: const Color(0xFF38BDF8),
                 ),
               ),
               const SizedBox(height: 6),
-              Text('${(progress * 100).round()}% completed',
-                  style: theme.textTheme.labelMedium),
+              Text(
+                '${(progress * 100).round()}% completed',
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 12,
+                ),
+              ),
             ],
           ),
         ),
@@ -55,5 +65,3 @@ class ProgressCard extends StatelessWidget {
     );
   }
 }
-
-

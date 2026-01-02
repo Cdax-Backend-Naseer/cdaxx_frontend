@@ -3,7 +3,6 @@
 
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import '../../../services/auth_service.dart';
 import 'course_repository.dart';
 import 'models/course.dart';
 import 'models/module.dart';
@@ -15,13 +14,15 @@ import '../../../models/assessment/assessment_model.dart';
 /// Remote implementation of CourseRepository that communicates with Spring Boot backend
 class RemoteCourseRepository implements CourseRepository {
   final String baseUrl;
+  final String? userId;
   final Duration timeout;
 
   RemoteCourseRepository({
     required this.baseUrl,
+    this.userId,
     this.timeout = const Duration(seconds: 10),
   }) {
-    print('🔗 RemoteCourseRepository initialized with baseUrl: $baseUrl');
+    print('🔗 RemoteCourseRepository initialized with baseUrl: $baseUrl, userId: $userId');
   }
 
   @override
@@ -29,17 +30,21 @@ class RemoteCourseRepository implements CourseRepository {
     print('\n📡 Fetching courses from backend...');
     print('   ├─ Search: ${search ?? 'none'}');
     print('   ├─ Page: $page');
+    print('   ├─ User ID: ${userId ?? "NOT SET"}');
     print('   └─ URL: $baseUrl/api/courses');
 
     try {
       // Build query parameters
-      final auth = AuthService();
-      final user = await auth.getCurrentUser();
-
       final Map<String, String> queryParams = {
         'page': page.toString(),
-        'userId': user?.id.toString() ?? '0',
       };
+
+      // Add userId ONLY if it's available
+      if (userId != null && userId!.isNotEmpty) {
+        queryParams['userId'] = userId!;
+      } else {
+        print('   ⚠️ WARNING: No userId provided, subscription status may be incorrect');
+      }
 
       if (search != null && search.trim().isNotEmpty) {
         queryParams['search'] = search.trim();
@@ -58,12 +63,10 @@ class RemoteCourseRepository implements CourseRepository {
       ).timeout(timeout);
 
       print('   📨 Response status: ${response.statusCode}');
-      print('   📨 Response headers: ${response.headers}');
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> jsonResponse = json.decode(response.body);
         print('   ✅ Successfully received courses data');
-        print('   📊 Response structure: ${jsonResponse.keys.toList()}');
 
         // Handle different response structures
         List<dynamic> coursesData = [];
@@ -97,13 +100,11 @@ class RemoteCourseRepository implements CourseRepository {
         print('   🎓 Successfully parsed ${courses.length} courses');
         for (final course in courses) {
           int totalVideos = course.modules.fold(0, (sum, module) => sum + module.videos.length);
-          print('   ├─ ${course.title}: ${course.modules.length} modules, $totalVideos videos');
+          print('   ├─ ${course.title}: ${course.modules.length} modules, $totalVideos videos, isSubscribed: ${course.isSubscribed}');
         }
 
-        // Apply client-side lock propagation so remote data matches mock behavior
-        final List<Course> adjustedCourses = courses.map((c) => _applyLockingToCourse(c)).toList();
-
-        return adjustedCourses;
+        // Backend already sends correct locking information - return as-is
+        return courses;
       } else {
         print('   ❌ Backend returned error: ${response.statusCode}');
         print('   📄 Error response: ${response.body}');
@@ -115,22 +116,45 @@ class RemoteCourseRepository implements CourseRepository {
     }
   }
 
+
+  @override
+  Future<List<Course>> getPublicCourses() async {
+    final url = "$baseUrl/api/courses/public";
+
+    final response = await http.get(Uri.parse(url));
+
+    if (response.statusCode == 200) {
+      final List data = json.decode(response.body);
+      return data.map((e) => Course.fromJson(e)).toList();
+    } else {
+      throw Exception("Public API failed: ${response.body}");
+    }
+  }
+
   @override
   Future<Course> getCourseById(String id) async {
     print('\n📡 Fetching course details from backend...');
     print('   ├─ Course ID: $id');
+    print('   ├─ User ID: ${userId ?? "NOT SET"}');
     print('   └─ URL: $baseUrl/api/courses/$id');
 
     try {
-      final auth = AuthService();
-      final currentUser = await auth.getCurrentUser();
+      // Build query parameters with actual user ID
+      final Map<String, String> queryParams = {};
+
+      // Use actual user ID if available
+      if (userId != null && userId!.isNotEmpty) {
+        queryParams['userId'] = userId!;
+        print('   👤 Using actual user ID: $userId');
+      } else {
+        queryParams['userId'] = '20'; // Fallback to hardcoded ID
+        print('   ⚠️ No user ID available, falling back to ID: 20');
+      }
 
       final uri = Uri.parse('$baseUrl/api/courses/$id').replace(
-        queryParameters: {
-          'userId': currentUser?.id.toString() ?? '0',
-        },
+        queryParameters: queryParams,
       );
-
+      print('   🌐 Full request URL: $uri');
 
       final response = await http.get(
         uri,
@@ -159,10 +183,22 @@ class RemoteCourseRepository implements CourseRepository {
         final Course course = Course.fromJson(courseData);
         int totalVideos = course.modules.fold(0, (sum, module) => sum + module.videos.length);
         print('   🎓 Course: ${course.title} (${course.modules.length} modules, $totalVideos videos)');
+        print('   🔐 Subscription status: ${course.isSubscribed ? "SUBSCRIBED" : "NOT SUBSCRIBED"}');
 
-        // Apply client-side lock propagation so videos/modules respect purchase/subscription
-        final Course adjusted = _applyLockingToCourse(course);
-        return adjusted;
+        // Debug: Print backend locking status
+        print('   🔒 Backend Locking Status:');
+        for (var mIndex = 0; mIndex < course.modules.length; mIndex++) {
+          final m = course.modules[mIndex];
+          print('      📝 Module $mIndex: ${m.title} - Backend isLocked: ${m.isLocked}');
+
+          for (var vIndex = 0; vIndex < m.videos.length; vIndex++) {
+            final v = m.videos[vIndex];
+            print('         🎥 Video $vIndex: ${v.title} - Backend isLocked: ${v.isLocked}');
+          }
+        }
+
+        // Backend already sends correct locking information - return as-is
+        return course;
       } else {
         print('   ❌ Backend returned error: ${response.statusCode}');
         print('   📄 Error response: ${response.body}');
@@ -189,8 +225,6 @@ class RemoteCourseRepository implements CourseRepository {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
-          // TODO: Add authentication headers when available
-          // 'Authorization': 'Bearer $token',
         },
         body: json.encode({
           'courseId': courseId,
@@ -203,7 +237,6 @@ class RemoteCourseRepository implements CourseRepository {
       if (response.statusCode == 200 || response.statusCode == 201) {
         final Map<String, dynamic> jsonResponse = json.decode(response.body);
         print('   ✅ Successfully enrolled in course');
-        print('   📄 Response: $jsonResponse');
 
         return jsonResponse['success'] == true ||
             jsonResponse['enrolled'] == true ||
@@ -234,8 +267,6 @@ class RemoteCourseRepository implements CourseRepository {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
-          // TODO: Add authentication headers when available
-          // 'Authorization': 'Bearer $token',
         },
       ).timeout(timeout);
 
@@ -270,11 +301,10 @@ class RemoteCourseRepository implements CourseRepository {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
-          // TODO: Add authentication headers when available
-          // 'Authorization': 'Bearer $token',
         },
         body: json.encode({
           'courseId': courseId,
+          'userId': userId ?? '1',
           'timestamp': DateTime.now().toIso8601String(),
         }),
       ).timeout(timeout);
@@ -284,12 +314,6 @@ class RemoteCourseRepository implements CourseRepository {
       if (response.statusCode == 200 || response.statusCode == 201) {
         final Map<String, dynamic> jsonResponse = json.decode(response.body);
         print('   ✅ Successfully purchased course');
-        print('   📄 Response: $jsonResponse');
-
-        // Mark local mock fallback as purchased as well so client-side access works
-        try {
-          // Fallback removed - using backend only
-        } catch (_) {}
 
         return jsonResponse['success'] == true ||
             jsonResponse['purchased'] == true ||
@@ -309,8 +333,6 @@ class RemoteCourseRepository implements CourseRepository {
   Future<List<Question>> getAssessmentQuestions(String assessmentId) async {
     print('\n📡 Fetching assessment questions from backend...');
     print('   ├─ Assessment ID: $assessmentId');
-    print('   ├─ Assessment ID type: ${assessmentId.runtimeType}');
-    print('   ├─ Base URL: $baseUrl');
     print('   └─ URL: $baseUrl/api/assessments/$assessmentId/questions');
 
     try {
@@ -387,12 +409,9 @@ class RemoteCourseRepository implements CourseRepository {
       ).timeout(timeout);
 
       print('   📨 Response status: ${response.statusCode}');
-      print('   📄 Response body length: ${response.body.length}');
-      print('   📄 Response body preview: ${response.body.length > 200 ? response.body.substring(0, 200) + "..." : response.body}');
 
       if (response.statusCode == 200) {
         final dynamic jsonDecoded = json.decode(response.body);
-        print('   📊 Response type: ${jsonDecoded.runtimeType}');
 
         List<dynamic> jsonResponse = [];
         if (jsonDecoded is List) {
@@ -403,7 +422,6 @@ class RemoteCourseRepository implements CourseRepository {
           } else if (jsonDecoded.containsKey('questions')) {
             jsonResponse = jsonDecoded['questions'] as List;
           } else {
-            print('   ⚠️ Unexpected response structure: ${jsonDecoded.keys}');
             jsonResponse = [];
           }
         }
@@ -417,7 +435,6 @@ class RemoteCourseRepository implements CourseRepository {
             return Assessment.fromJson(assessmentJson);
           } catch (e) {
             print('   ⚠️ Error parsing assessment: $e');
-            print('   📄 Problematic assessment data: $assessmentJson');
             rethrow;
           }
         }).toList();
@@ -427,7 +444,6 @@ class RemoteCourseRepository implements CourseRepository {
         return assessments;
       } else {
         print('   ❌ Backend returned error: ${response.statusCode}');
-        print('   📄 Error response: ${response.body}');
         throw Exception('Backend returned ${response.statusCode}: ${response.body}');
       }
     } catch (e) {
@@ -435,83 +451,4 @@ class RemoteCourseRepository implements CourseRepository {
       rethrow;
     }
   }
-
-  // Apply lock logic to a Course instance so remote data behaves like mock data.
-  // Rules:
-  // - If course.isSubscribed == true => all modules and videos unlocked.
-  // - If not subscribed => only module at index 0 is unlocked; within an unlocked module
-  //   only video at index 0 is unlocked. All other modules/videos are locked.
-  Course _applyLockingToCourse(Course course) {
-    final bool subscribed = course.isSubscribed;
-    print('🔒 Course Lock Logic: ${course.title}');
-    print('   📊 isSubscribed: $subscribed');
-    print('   📚 Total modules: ${course.modules.length}');
-
-    final modules = <Module>[];
-    for (var mIndex = 0; mIndex < course.modules.length; mIndex++) {
-      final m = course.modules[mIndex];
-      final bool moduleLocked = !subscribed && mIndex > 0;
-      print('   📝 Module $mIndex: ${m.title} - will be locked: $moduleLocked');
-
-      final videos = <Video>[];
-      for (var vIndex = 0; vIndex < m.videos.length; vIndex++) {
-        final v = m.videos[vIndex];
-        final bool videoLocked = subscribed ? false : (moduleLocked ? true : (vIndex != 0));
-
-        videos.add(Video(
-          id: v.id,
-          title: v.title,
-          description: v.description,
-          youtubeUrl: v.youtubeUrl,
-          durationSec: v.durationSec,
-          orderIndex: v.orderIndex,
-          thumbnailUrl: v.thumbnailUrl,
-          isLocked: videoLocked,
-          isCompleted: v.isCompleted,
-        ));
-      }
-
-      modules.add(Module(
-        id: m.id,
-        title: m.title,
-        description: m.description,
-        durationSec: m.durationSec,
-        isLocked: moduleLocked,
-        orderIndex: m.orderIndex,
-        videos: videos,
-        // If module is locked, ensure its assessment is locked as well
-        assessment: m.assessment != null
-            ? Assessment(
-          id: m.assessment!.id,
-          title: m.assessment!.title,
-          category: m.assessment!.category,
-          duration: m.assessment!.duration,
-          difficulty: m.assessment!.difficulty,
-          description: m.assessment!.description,
-          totalQuestions: m.assessment!.totalQuestions,
-          passingScore: m.assessment!.passingScore,
-          isActive: !moduleLocked,
-          isLocked: moduleLocked,
-        )
-            : null,
-      ));
-    }
-
-    return Course(
-      id: course.id,
-      title: course.title,
-      description: course.description,
-      thumbnailUrl: course.thumbnailUrl,
-      progressPercent: course.progressPercent,
-      isSubscribed: course.isSubscribed,
-      modules: modules,
-      instructor: course.instructor,
-      rating: course.rating,
-      studentsCount: course.studentsCount,
-      category: course.category,
-      createdAt: course.createdAt,
-      updatedAt: course.updatedAt,
-    );
-  }
 }
- 

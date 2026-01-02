@@ -12,44 +12,43 @@ class AuthService {
   final StorageService _storageService = StorageService();
   
   // Login user
+// Login user
   Future<ApiResponse<AuthResponse>> login({
     required String email,
     required String password,
   }) async {
-    // Input validation
-    if (email.trim().isEmpty || password.trim().isEmpty) {
-      return ApiResponse.error('Email and password are required');
-    }
-    
+    // ... existing validation code ...
+
     try {
       final response = await _httpService.post<AuthResponse>(
         ApiEndpoints.login,
-        (data) => AuthResponse.fromJson(data),
+            (data) => AuthResponse.fromJson(data),
         body: {
           'email': email,
           'password': password,
         },
       );
-      
+
       if (response.isSuccess && response.data != null) {
         final authResponse = response.data!;
-        
+
+        // === ADD DEBUG CODE HERE ===
+        print('🔍 BACKEND AUTH RESPONSE:');
+        print('   ├─ Token: ${authResponse.token != null ? "✓" : "✗"}');
+        print('   ├─ User: ${authResponse.user != null ? "✓" : "✗"}');
+        if (authResponse.user != null) {
+          print('   ├─ User ID: ${authResponse.user!.id}');
+          print('   ├─ User Email: ${authResponse.user!.email}');
+          print('   ├─ User First Name: ${authResponse.user!.firstName}');
+        }
+        // === END DEBUG CODE ===
+
         // Store user session in UserManager
         await UserManager.setEmail(email);
-        
-        // Store tokens and user data if available
-        if (authResponse.token != null && authResponse.token!.isNotEmpty) {
-          await _storageService.setString('auth_token', authResponse.token!);
-          _httpService.setAuthToken(authResponse.token!);
-        }
-        if (authResponse.refreshToken != null && authResponse.refreshToken!.isNotEmpty) {
-          await _storageService.setString('refresh_token', authResponse.refreshToken!);
-        }
-        if (authResponse.user != null) {
-          await _storageService.setString('user_data', jsonEncode(authResponse.user!.toJson()));
-        }
+
+        // ... rest of your code ...
       }
-      
+
       return response;
     } catch (e) {
       return ApiResponse.error('Login failed: ${e.toString()}');
@@ -281,16 +280,24 @@ class AuthService {
   }
   
   // Get current user from storage
+// In getCurrentUser() method - around line 154
   Future<UserModel?> getCurrentUser() async {
     try {
       final userDataString = _storageService.getString('user_data');
       if (userDataString != null) {
+        // DEBUG: Print raw user data
+        print('🔍 RAW USER DATA FROM STORAGE: $userDataString');
+
         // Parse JSON string back to UserModel
         final Map<String, dynamic> userData = json.decode(userDataString);
+        print('🔍 PARSED USER DATA: ${userData.keys.toList()}');
+        print('🔍 USER ID FIELD: ${userData['id']} (type: ${userData['id']?.runtimeType})');
+
         return UserModel.fromJson(userData);
       }
       return null;
     } catch (e) {
+      print('❌ ERROR parsing user data: $e');
       return null;
     }
   }

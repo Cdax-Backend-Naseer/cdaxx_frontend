@@ -1,226 +1,274 @@
-// Course detail screen with subscription-based access control
-
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import '../application/course_providers.dart';
-import '../../courses/presentation/module_row.dart';
-import '../../courses/data/models/module.dart';
-import '../../../providers/subscription_provider.dart';
+import 'package:provider/provider.dart';
 
+import '../../../factories/course_repository_factory.dart';
+import '../../../providers/dashboard_provider.dart';
+import '../../../providers/subscription_provider.dart';
+import '../../courses/data/models/module.dart';
+import '../../courses/presentation/module_row.dart';
+import '../data/course_repository.dart';
+
+/// Same gradient as HomeScreen
+const LinearGradient _kDashboardBgGradient = LinearGradient(
+  begin: Alignment.topCenter,
+  end: Alignment.bottomCenter,
+  colors: [
+    Color(0xFF020617),
+    Color(0xFF0F172A),
+  ],
+);
 
 class CourseDetailScreen extends StatefulWidget {
-  const CourseDetailScreen({super.key, required this.courseId});
+  const CourseDetailScreen({
+    super.key,
+    required this.courseId,
+    this.userId,
+  });
+
   final String courseId;
+  final String? userId;
 
   @override
   State<CourseDetailScreen> createState() => _CourseDetailScreenState();
 }
 
 class _CourseDetailScreenState extends State<CourseDetailScreen> {
-  late final CourseRepository _repo;
-  
-  @override
-  void initState() {
-    super.initState();
-    
-    // Initialize repository using factory
-    _repo = CourseProviders.getCourseRepository();
-    print('📖 CourseDetailScreen: Initialized with ${_repo.runtimeType} for course ${widget.courseId}');
+  CourseRepository? _repo;
+
+  Widget _glassCard({required Widget child, double opacity = 0.08}) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Color.fromRGBO(255, 255, 255, opacity),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: Color.fromRGBO(255, 255, 255, 0.12),
+            ),
+          ),
+          child: child,
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final asyncCourse = _repo.getCourseById(widget.courseId);
-    final theme = Theme.of(context);
-    return FutureBuilder(
-      future: asyncCourse,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done) {
-          return const Scaffold(body: Center(child: CircularProgressIndicator()));
-        }
-        if (snapshot.hasError) {
-          return Scaffold(appBar: AppBar(), body: Center(child: Text('Error: ${snapshot.error}')));
-        }
-        final course = snapshot.data;
-        if (course == null) {
-          return const Scaffold(
-            body: Center(child: Text('Course not found')),
-          );
-        }
-        return Scaffold(
-          appBar: AppBar(title: Text(course.title)),
-          body: ListView(
-            children: [
-              GestureDetector(
-                onTap: () {
-                  Module? firstUnlocked;
-                  for (final m in course.modules) {
-                    if (!m.isLocked) {
-                      firstUnlocked = m;
-                      break;
-                    }
-                  }
-                  firstUnlocked ??= course.modules.isNotEmpty ? course.modules.first : null;
-                  if (firstUnlocked != null) {
-                  context.go('/dashboard/courses/${course.id}/module/${firstUnlocked.id}');
-                  }
-                },
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    AspectRatio(
-                      aspectRatio: 16 / 9,
-                      child: Image.network(course.thumbnailUrl, fit: BoxFit.cover),
+    _repo ??= CourseRepositoryFactory.getInstance(
+      context: context,
+      userId: widget.userId,
+    );
+
+    final asyncCourse = _repo!.getCourseById(widget.courseId);
+
+    return Container(
+      decoration: const BoxDecoration(gradient: _kDashboardBgGradient),
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          iconTheme: const IconThemeData(color: Colors.white),
+          title: const Text(
+            'Course Details',
+            style: TextStyle(color: Colors.white),
+          ),
+        ),
+        body: Consumer<DashboardProvider>(
+          builder: (context, dashboardProvider, _) {
+            return FutureBuilder(
+              future: asyncCourse,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState != ConnectionState.done) {
+                  return const Center(
+                    child: CircularProgressIndicator(color: Color(0xFF38BDF8)),
+                  );
+                }
+
+                if (snapshot.hasError || snapshot.data == null) {
+                  return const Center(
+                    child: Text(
+                      'Failed to load course',
+                      style: TextStyle(color: Colors.white),
                     ),
-                    Container(
-                      decoration: BoxDecoration(
-                        color: Colors.black45,
-                        borderRadius: BorderRadius.circular(32),
-                      ),
-                      padding: const EdgeInsets.all(8),
-                      child: const Icon(Icons.play_arrow, size: 48, color: Colors.white),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  );
+                }
+
+                final course = snapshot.data!;
+                final stats = dashboardProvider.dashboardStats;
+
+                final courseStats = stats?.courseStats
+                    ?.where((s) => s.courseId.toString() == course.id)
+                    .toList()
+                    .firstOrNull;
+
+                final progressPercent =
+                    courseStats?.progressPercent ?? course.progressPercent ?? 0;
+
+                return ListView(
+                  padding: const EdgeInsets.all(16),
                   children: [
-                    Text(course.title, style: theme.textTheme.headlineSmall),
-                    const SizedBox(height: 8),
-                    Text(course.description),
-                    const SizedBox(height: 12),
-                     Column(
-                       crossAxisAlignment: CrossAxisAlignment.start,
-                       children: [
-                    Row(
-                      children: [
-                             // Show Enroll button if course is purchased
-                             if (course.isSubscribed)
-                               Expanded(
-                                 child: FilledButton(
-                                   onPressed: () async {
-                                     try {
-                                       final success = await _repo.enrollInCourse(course.id);
-                                       if (mounted) {
-                                         if (success) {
-                                           // ignore: use_build_context_synchronously
-                                           ScaffoldMessenger.of(context).showSnackBar(
-                                             const SnackBar(
-                                               content: Text('Successfully enrolled in course!'),
-                                               backgroundColor: Colors.green,
-                                             ),
-                                           );
-                                           setState(() {}); // Refresh to show updated state
-                                         } else {
-                                           // ignore: use_build_context_synchronously
-                                           ScaffoldMessenger.of(context).showSnackBar(
-                                             const SnackBar(
-                                               content: Text('Cannot enroll in unpurchased course'),
-                                               backgroundColor: Colors.red,
-                                             ),
-                                           );
-                                         }
-                                       }
-                                     } catch (e) {
-                                       if (mounted) {
-                                         // ignore: use_build_context_synchronously
-                                         ScaffoldMessenger.of(context).showSnackBar(
-                                           const SnackBar(
-                                             content: Text('Failed to enroll. Please try again.'),
-                                             backgroundColor: Colors.red,
-                                           ),
-                                         );
-                                       }
-                                     }
-                                   },
-                                   child: const Text('Enroll'),
-                                 ),
-                               ),
-                             const SizedBox(width: 8),
-                             // Only show Buy Course button for unpurchased courses
-                             if (!course.isSubscribed)
-                               Expanded(
-                                 child: FilledButton.tonal(
-                                   onPressed: () {
-                                     // Prepare purchase context for this course
-                                     SubscriptionController.instance.setPurchaseContext(
-                                       courseId: course.id,
-                                       courseTitle: course.title,
-                                       amount: 399.0,
-                                     );
-                                     // Navigate to order summary first
-                                     context.push('/dashboard/subscription/summary');
-                                   },
-                                   child: const Text('Buy course'),
-                                 ),
-                               ),
-                           ],
-                         ),
-                         const SizedBox(height: 8),
-                        Text('Progress: ${(course.progressPercent * 100).round()}%'),
-                        const SizedBox(height: 12),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                    /// Thumbnail
+                    GestureDetector(
+                      onTap: () {
+                        final firstUnlocked = course.modules
+                            .firstWhere((m) => !(m.isLocked ?? true),
+                            orElse: () => course.modules.first);
+
+                        context.go(
+                          '/dashboard/courses/${course.id}/module/${firstUnlocked.id}',
+                          extra: {'userId': widget.userId},
+                        );
+                      },
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: Stack(
+                          alignment: Alignment.center,
                           children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: FilledButton.tonal(
-                                    onPressed: () => context.push('/dashboard/assessment'),
-                                    child: const Text('Take Assessment'),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: FilledButton.tonal(
-                                    onPressed: () => context.push('/dashboard/courses/${course.id}/code'),
-                                    child: const Text('Solve Problem'),
-                                  ),
-                                ),
-                              ],
+                            Image.network(
+                              course.thumbnailUrl,
+                              height: 200,
+                              width: double.infinity,
+                              fit: BoxFit.cover,
                             ),
-                            const SizedBox(height: 8),
-                            FilledButton.tonal(
-                              onPressed: () => context.push('/dashboard/courses/${course.id}/certificate'),
-                              child: const Text('View Certificate'),
+                            Container(
+                              decoration: BoxDecoration(
+                                color: Colors.black45,
+                                borderRadius: BorderRadius.circular(32),
+                              ),
+                              padding: const EdgeInsets.all(12),
+                              child: const Icon(
+                                Icons.play_arrow,
+                                size: 48,
+                                color: Colors.white,
+                              ),
                             ),
                           ],
                         ),
-                      ],
+                      ),
                     ),
+
+                    const SizedBox(height: 16),
+
+                    /// Course Info
+                    _glassCard(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              course.title,
+                              style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              course.description,
+                              style: const TextStyle(color: Colors.white70),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'Progress: $progressPercent%',
+                              style: const TextStyle(
+                                color: Color(0xFF38BDF8),
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+
+                            /// Subscribe / Start Button
+                            SizedBox(
+                              width: double.infinity,
+                              child: course.isSubscribed
+                                  ? FilledButton(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor:
+                                  const Color(0xFF22C55E),
+                                ),
+                                onPressed: () {
+                                  final firstUnlocked = course.modules
+                                      .firstWhere(
+                                          (m) => !(m.isLocked ?? true),
+                                      orElse: () =>
+                                      course.modules.first);
+
+                                  context.go(
+                                    '/dashboard/courses/${course.id}/module/${firstUnlocked.id}',
+                                    extra: {'userId': widget.userId},
+                                  );
+                                },
+                                child: const Text('Start Learning'),
+                              )
+                                  : FilledButton.tonal(
+                                onPressed: () {
+                                  SubscriptionController.instance
+                                      .setPurchaseContext(
+                                    courseId: course.id,
+                                    courseTitle: course.title,
+                                    amount: 399.0,
+                                  );
+                                  context.push(
+                                      '/dashboard/subscription/summary');
+                                },
+                                child: const Text('Buy Course'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 24),
+
+                    /// Modules
+                    Text(
+                      'Modules',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    ...course.modules.map((m) {
+                      final isLocked = m.isLocked ?? true;
+
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _glassCard(
+                          child: ModuleRow(
+                            module: m,
+                            titleColor: Colors.white,
+                            subtitleColor: Colors.white70,
+                            lockedTextColor: const Color(0xFF38BDF8),
+                            onPlay: isLocked
+                                ? null
+                                : () {
+                              context.go(
+                                '/dashboard/courses/${course.id}/module/${m.id}',
+                                extra: {'userId': widget.userId},
+                              );
+                            },
+                          ),
+                        ),
+                      );
+                    }).toList(),
                   ],
-                ),
-              ),
-              const Divider(),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: Column(
-                  children: course.modules.isEmpty
-                      ? [
-                          const Padding(
-                            padding: EdgeInsets.all(24),
-                            child: Center(child: Text('No modules available')),
-                          )
-                        ]
-                      : course.modules.map((m) {
-                    return ModuleRow(
-                      module: m,
-                      onPlay: m.isLocked
-                          ? null
-                          : () => context.go('/dashboard/courses/${course.id}/module/${m.id}'),
-                    );
-                  }).toList(),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
+                );
+              },
+            );
+          },
+        ),
+      ),
     );
   }
 }
-
-

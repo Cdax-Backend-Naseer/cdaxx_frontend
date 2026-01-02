@@ -72,8 +72,11 @@ class AppRoutes {
       case courses:
         return _buildRoute(const CourseListScreen());
       case courseDetails:
-        final courseId = settings.arguments as String?;
-        return _buildRoute(CourseDetailsScreen(courseId: courseId ?? ''));
+        final args = settings.arguments as Map<String, dynamic>?;
+        return _buildRoute(CourseDetailsScreen(
+          courseId: args?['courseId'] ?? '',
+          userId: args?['userId'], // Add this line
+        ));
       case courseContent:
         final args = settings.arguments as Map<String, dynamic>?;
         return _buildRoute(CourseContentScreen(
@@ -249,9 +252,10 @@ class CourseListScreen extends StatelessWidget {
 
 class CourseDetailsScreen extends StatelessWidget {
   final String courseId;
-  const CourseDetailsScreen({super.key, required this.courseId});
+  final String? userId; // Add this line
+  const CourseDetailsScreen({super.key, required this.courseId, this.userId}); // Add userId parameter here
   @override
-  Widget build(BuildContext context) => Scaffold(body: Center(child: Text('Course Details: $courseId')));
+  Widget build(BuildContext context) => Scaffold(body: Center(child: Text('Course Details: $courseId - User: $userId')));
 }
 
 class CourseContentScreen extends StatelessWidget {

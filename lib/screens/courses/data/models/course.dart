@@ -39,7 +39,7 @@ class Course {
   // JSON serialization for API integration
   factory Course.fromJson(Map<String, dynamic> json) {
     print('🎓 Parsing Course JSON: ${json['title']} (ID: ${json['id']})');
-    
+
     try {
       // Parse modules list
       List<Module> modulesList = [];
@@ -48,7 +48,7 @@ class Course {
             .map((moduleJson) => Module.fromJson(moduleJson))
             .toList();
         print('   ├─ Found ${modulesList.length} modules in course');
-        
+
         // Count total videos
         int totalVideos = modulesList.fold(0, (sum, module) => sum + module.videos.length);
         print('   └─ Total videos across all modules: $totalVideos');
@@ -60,7 +60,7 @@ class Course {
         description: json['description']?.toString() ?? '',
         thumbnailUrl: json['thumbnailUrl']?.toString() ?? '',
         progressPercent: _parseDoubleSafely(json['progressPercent'] ?? json['progress'], 0.0),
-        isSubscribed: _parseBoolSafely(json['isSubscribed'] ?? json['isPurchased'], false),
+        isSubscribed: _parseBoolSafely(json['isSubscribed'] ?? json['setPurchased'], false),
         modules: modulesList,
         instructor: json['instructor']?.toString(),
         rating: _parseDoubleSafely(json['rating'], null),
@@ -114,6 +114,28 @@ class Course {
       modules: modules,
     );
   }
+
+
+  // ---------- FILTER SAFE GETTERS ----------
+
+  double get safeRating => rating ?? 0.0;
+
+  int get safeStudentsCount => studentsCount ?? 0;
+
+  // int get totalDurationMinutes {
+  //   int total = 0;
+  //
+  //   for (final module in modules) {
+  //     for (final video in module.videos) {
+  //       total += video.durationMinutes;
+  //     }
+  //   }
+  //
+  //   return total;
+  // }
+
+
+  bool get isFree => false; // extend later when price is added
 
   // Utility methods for safe parsing
   static double _parseDoubleSafely(dynamic value, double? defaultValue) {

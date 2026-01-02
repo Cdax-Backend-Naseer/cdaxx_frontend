@@ -1,11 +1,12 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_colors.dart';
-import '../../providers/assessment_result_provider.dart';
-import '../../models/assessment/assessment_result_model.dart';
-import 'widgets/result_summary.dart';
+import '../../providers/assessment_provider.dart';
+// Remove the incorrect import
+// import '../../providers/dashboard_provider.dart_provider.dart';
 
 class AssessmentResultScreen extends StatefulWidget {
   final String assessmentId;
@@ -27,10 +28,16 @@ class _AssessmentResultScreenState extends State<AssessmentResultScreen>
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
 
+  Map<String, dynamic>? _result;
+  bool _isLoading = true;
+  String? _error;
+  Timer? _autoNavigateTimer;
+
   @override
   void initState() {
     super.initState();
     _setupAnimations();
+    _loadResult();
   }
 
   void _setupAnimations() {
@@ -71,8 +78,88 @@ class _AssessmentResultScreenState extends State<AssessmentResultScreen>
     _mainAnimationController.forward();
   }
 
+  Future<void> _loadResult() async {
+    try {
+      final assessmentProvider = context.read<AssessmentProvider>();
+
+      // Try to get result from provider first
+      if (assessmentProvider.lastAssessmentResult != null) {
+        _result = assessmentProvider.lastAssessmentResult;
+        _handleResult();
+      } else {
+        // Fallback: Fetch result from backend
+        final assessmentId = int.tryParse(widget.assessmentId);
+        if (assessmentId != null) {
+          _result = await assessmentProvider.getAssessmentStatus(assessmentId);
+          _handleResult();
+        } else {
+          setState(() {
+            _error = 'Invalid assessment ID';
+            _isLoading = false;
+          });
+          return;
+        }
+      }
+
+      setState(() {
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = 'Failed to load result: ${e.toString()}';
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _handleResult() {
+    if (_result == null) return;
+
+    final bool passed = _result!['passed'] ?? false;
+    final bool nextModuleUnlocked = _result!['nextModuleUnlocked'] ?? false;
+
+    // Trigger celebration for passed results
+    if (passed && _celebrationController.status == AnimationStatus.dismissed) {
+      _celebrationController.forward();
+    }
+
+    // If next module unlocked, show success message
+    if (nextModuleUnlocked && passed) {
+      // Show success message
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '🎉 Next module unlocked! You can now continue learning.',
+              style: TextStyle(color: Colors.white),
+            ),
+            backgroundColor: AppColors.success,
+            duration: Duration(seconds: 5),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+
+        // Auto-navigate after 5 seconds if user passed and next module unlocked
+        if (passed && nextModuleUnlocked) {
+          _autoNavigateTimer = Timer(Duration(seconds: 5), () {
+            if (mounted) {
+              _goToNextModule();
+            }
+          });
+        }
+      });
+    }
+  }
+
   @override
   void dispose() {
+    // Clear stored result when leaving screen
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final assessmentProvider = context.read<AssessmentProvider>();
+      assessmentProvider.clearLastResult();
+    });
+
+    _autoNavigateTimer?.cancel();
     _mainAnimationController.dispose();
     _celebrationController.dispose();
     super.dispose();
@@ -81,51 +168,102 @@ class _AssessmentResultScreenState extends State<AssessmentResultScreen>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
+    if (_isLoading) {
+      return Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('Loading results...', style: theme.textTheme.bodyLarge),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_error != null) {
+      return Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            icon: Icon(Icons.arrow_back),
+            onPressed: () => context.pop(),
+          ),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.error_outline, size: 64, color: theme.colorScheme.error),
+                SizedBox(height: 16),
+                Text(
+                  'Error Loading Results',
+                  style: theme.textTheme.headlineSmall,
+                ),
+                SizedBox(height: 8),
+                Text(
+                  _error!,
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyMedium,
+                ),
+                SizedBox(height: 20),
+                ElevatedButton(
+                  onPressed: _loadResult,
+                  child: Text('Retry'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (_result == null) {
+      return Scaffold(
+        body: Center(
+          child: Text('No result data available'),
+        ),
+      );
+    }
+
+    // Extract result data
+    final bool passed = _result!['passed'] ?? false;
+    final bool nextModuleUnlocked = _result!['nextModuleUnlocked'] ?? false;
+    final double percentage = (_result!['percentage'] ?? 0.0).toDouble();
+    final int obtainedMarks = (_result!['obtainedMarks'] ?? 0).toInt();
+    final int totalMarks = (_result!['totalMarks'] ?? 0).toInt();
+    final String message = _result!['message'] ?? '';
+    final String assessmentTitle = _result!['assessmentTitle'] ?? 'Assessment';
+
     return PopScope(
       canPop: false,
       child: Scaffold(
-        body: Consumer<AssessmentResultProvider>(
-          builder: (context, provider, child) {
-            if (provider.result == null) {
-              return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const CircularProgressIndicator(),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Loading results...',
-                      style: theme.textTheme.bodyLarge,
-                    ),
-                  ],
+        body: AnimatedBuilder(
+          animation: _mainAnimationController,
+          builder: (context, child) {
+            return FadeTransition(
+              opacity: _fadeAnimation,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0, 1),
+                  end: Offset.zero,
+                ).animate(_slideAnimation),
+                child: _buildResultContent(
+                  context,
+                  theme,
+                  passed: passed,
+                  nextModuleUnlocked: nextModuleUnlocked,
+                  percentage: percentage,
+                  obtainedMarks: obtainedMarks,
+                  totalMarks: totalMarks,
+                  message: message,
+                  assessmentTitle: assessmentTitle,
                 ),
-              );
-            }
-
-            final result = provider.result!;
-            
-            // Trigger celebration animation for passed results
-            if (result.passed && _celebrationController.status == AnimationStatus.dismissed) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                _celebrationController.forward();
-              });
-            }
-
-            return AnimatedBuilder(
-              animation: _mainAnimationController,
-              builder: (context, child) {
-                return FadeTransition(
-                  opacity: _fadeAnimation,
-                  child: SlideTransition(
-                    position: Tween<Offset>(
-                      begin: const Offset(0, 1),
-                      end: Offset.zero,
-                    ).animate(_slideAnimation),
-                    child: _buildResultContent(context, result, theme),
-                  ),
-                );
-              },
+              ),
             );
           },
         ),
@@ -133,7 +271,17 @@ class _AssessmentResultScreenState extends State<AssessmentResultScreen>
     );
   }
 
-  Widget _buildResultContent(BuildContext context, AssessmentResult result, ThemeData theme) {
+  Widget _buildResultContent(
+      BuildContext context,
+      ThemeData theme, {
+        required bool passed,
+        required bool nextModuleUnlocked,
+        required double percentage,
+        required int obtainedMarks,
+        required int totalMarks,
+        required String message,
+        required String assessmentTitle,
+      }) {
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(20.0),
@@ -153,9 +301,9 @@ class _AssessmentResultScreenState extends State<AssessmentResultScreen>
                         height: 120,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: result.passed 
-                              ? AppColors.success.withValues(alpha: 0.1)
-                              : AppColors.error.withValues(alpha: 0.1),
+                          color: passed
+                              ? AppColors.success.withOpacity(0.1)
+                              : AppColors.error.withOpacity(0.1),
                         ),
                       ),
                       Container(
@@ -163,19 +311,19 @@ class _AssessmentResultScreenState extends State<AssessmentResultScreen>
                         height: 80,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: result.passed 
-                              ? AppColors.success 
+                          color: passed
+                              ? AppColors.success
                               : AppColors.error,
                         ),
                         child: Icon(
-                          result.passed 
-                              ? Icons.check_circle 
+                          passed
+                              ? Icons.check_circle
                               : Icons.cancel,
                           color: Colors.white,
                           size: 40,
                         ),
                       ),
-                      if (result.passed)
+                      if (passed)
                         AnimatedBuilder(
                           animation: _celebrationController,
                           builder: (context, child) {
@@ -200,136 +348,177 @@ class _AssessmentResultScreenState extends State<AssessmentResultScreen>
                         ),
                     ],
                   ),
-                  
+
                   const SizedBox(height: 24),
-                  
+
+                  // Assessment title
+                  Text(
+                    assessmentTitle,
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+
+                  const SizedBox(height: 8),
+
                   // Result status
                   Text(
-                    result.passed ? 'Congratulations!' : 'Better Luck Next Time!',
-                    style: theme.textTheme.headlineMedium?.copyWith(
+                    passed ? 'Congratulations!' : 'Better Luck Next Time!',
+                    style: theme.textTheme.headlineSmall?.copyWith(
                       fontWeight: FontWeight.bold,
-                      color: result.passed 
-                          ? AppColors.success 
+                      color: passed
+                          ? AppColors.success
                           : AppColors.error,
                     ),
                     textAlign: TextAlign.center,
                   ),
-                  
-                  const SizedBox(height: 8),
-                  
+
+                  const SizedBox(height: 12),
+
+                  // Custom message based on result
                   Text(
-                    result.passed 
-                        ? 'You have successfully completed the assessment!' 
-                        : 'You didn\'t pass this time, but keep learning!',
+                    message,
                     style: theme.textTheme.bodyLarge?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                     textAlign: TextAlign.center,
                   ),
+
+                  // Next module unlocked badge
+                  if (nextModuleUnlocked) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.success.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: AppColors.success,
+                          width: 1,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.lock_open,
+                            color: AppColors.success,
+                            size: 16,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Next Module Unlocked!',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: AppColors.success,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
-            
+
             const SizedBox(height: 32),
-            
-            // Result summary
-            ResultSummary(result: result),
-            
-            const SizedBox(height: 32),
-            
-            // Performance message
+
+            // Score display
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.5),
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(
-                  color: theme.colorScheme.outline.withValues(alpha: 0.2),
+                  color: theme.colorScheme.outline.withOpacity(0.2),
                 ),
               ),
               child: Column(
                 children: [
-                  Row(
+                  Text(
+                    'Your Score',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Score circle
+                  Stack(
+                    alignment: Alignment.center,
                     children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.primaryContainer,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Icon(
-                          Icons.psychology,
-                          color: theme.colorScheme.onPrimaryContainer,
+                      SizedBox(
+                        width: 150,
+                        height: 150,
+                        child: CircularProgressIndicator(
+                          value: percentage / 100,
+                          strokeWidth: 12,
+                          backgroundColor: theme.colorScheme.outline.withOpacity(0.2),
+                          color: percentage >= 70
+                              ? AppColors.success
+                              : percentage >= 50
+                              ? AppColors.warning
+                              : AppColors.error,
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Performance Review',
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
+                      Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            '$obtainedMarks/$totalMarks',
+                            style: theme.textTheme.headlineSmall?.copyWith(
+                              fontWeight: FontWeight.bold,
                             ),
-                            Text(
-                              result.performanceMessage,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
+                          ),
+                          Text(
+                            '${percentage.toStringAsFixed(1)}%',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                  
+
                   const SizedBox(height: 16),
-                  
-                  // Grade display
+
+                  // Passing requirement
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text(
-                        'Grade: ',
-                        style: theme.textTheme.titleMedium,
+                      Icon(
+                        percentage >= 70 ? Icons.check_circle : Icons.cancel,
+                        color: percentage >= 70 ? AppColors.success : AppColors.error,
+                        size: 20,
                       ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: _getGradeColor(result.gradeLevel),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          result.gradeLevel,
-                          style: theme.textTheme.titleLarge?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Passing Requirement: ≥70%',
+                        style: theme.textTheme.bodyMedium,
                       ),
                     ],
                   ),
                 ],
               ),
             ),
-            
+
             const SizedBox(height: 32),
-            
+
             // Action buttons
             Column(
               children: [
-                if (result.passed) ...[
+                if (passed && nextModuleUnlocked) ...[
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton.icon(
-                      onPressed: () => _navigateToCertificate(result),
-                      icon: const Icon(Icons.workspace_premium),
-                      label: const Text('Get Certificate'),
+                      onPressed: _goToNextModule,
+                      icon: const Icon(Icons.arrow_forward),
+                      label: const Text('Continue to Next Module'),
                       style: FilledButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         backgroundColor: AppColors.success,
@@ -338,55 +527,36 @@ class _AssessmentResultScreenState extends State<AssessmentResultScreen>
                     ),
                   ),
                   const SizedBox(height: 12),
-                ],
-                
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () => _reviewAnswers(result),
-                    icon: const Icon(Icons.quiz),
-                    label: const Text('Review Answers'),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
+                  Text(
+                    'Auto-navigating in 5 seconds...',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
-                ),
-                
-                const SizedBox(height: 12),
-                
-                if (!result.passed)
+                  const SizedBox(height: 12),
+                ],
+
+                if (!passed)
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton.icon(
-                      onPressed: () => _retakeAssessment(),
+                      onPressed: _retakeAssessment,
                       icon: const Icon(Icons.refresh),
-                      label: const Text('Retake Assessment'),
+                      label: const Text('Try Again'),
                       style: FilledButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                       ),
                     ),
-                  )
-                else
-                  SizedBox(
-                    width: double.infinity,
-                    child: TextButton.icon(
-                      onPressed: () => _retakeAssessment(),
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('Retake Assessment'),
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                      ),
-                    ),
                   ),
-                
-                const SizedBox(height: 20),
-                
+
+                const SizedBox(height: 12),
+
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton.icon(
-                    onPressed: () => _goToHome(),
+                    onPressed: _goToDashboard,
                     icon: const Icon(Icons.home),
-                    label: const Text('Go to Dashboard'),
+                    label: const Text('Back to Dashboard'),
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 16),
                     ),
@@ -394,14 +564,14 @@ class _AssessmentResultScreenState extends State<AssessmentResultScreen>
                 ),
               ],
             ),
-            
+
             const SizedBox(height: 32),
-            
+
             // Footer info
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.3),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Row(
@@ -429,69 +599,40 @@ class _AssessmentResultScreenState extends State<AssessmentResultScreen>
     );
   }
 
-  Color _getGradeColor(String grade) {
-    switch (grade) {
-      case 'A+':
-      case 'A':
-        return AppColors.success;
-      case 'B+':
-      case 'B':
-        return AppColors.info;
-      case 'C+':
-      case 'C':
-        return AppColors.warning;
-      case 'D':
-        return AppColors.error;
-      case 'F':
-        return AppColors.error;
-      default:
-        return Colors.grey;
-    }
-  }
+  void _goToNextModule() {
+    // Cancel auto-navigation timer
+    _autoNavigateTimer?.cancel();
 
-  void _navigateToCertificate(AssessmentResult result) {
-    context.push('/dashboard/assessment/certificate/${widget.assessmentId}');
-  }
+    // Navigate to the next module (adjust based on your app structure)
+    // Since you don't have CourseProvider, you can navigate to the course/modules screen
+    // or refresh the course data by navigating to dashboard and then back to course
+    context.go('/dashboard');
 
-  void _reviewAnswers(AssessmentResult result) {
-    // TODO: Implement answer review screen
+    // Show a message that next module is available
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Answer review feature coming soon!'),
+      SnackBar(
+        content: Text('Next module is now available in your course!'),
+        backgroundColor: AppColors.success,
       ),
     );
   }
 
   void _retakeAssessment() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Retake Assessment?'),
-        content: const Text(
-          'Are you sure you want to retake this assessment? Your current result will be replaced.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              // Clear current result and go back to assessment
-              Provider.of<AssessmentResultProvider>(context, listen: false).clearResult();
-              context.pushReplacement('/dashboard/assessment/question/${widget.assessmentId}');
-            },
-            child: const Text('Retake'),
-          ),
-        ],
-      ),
+    // Cancel auto-navigation timer
+    _autoNavigateTimer?.cancel();
+
+    // Go back to assessment screen
+    context.pushReplacement(
+      '/dashboard/assessment/question/${widget.assessmentId}',
     );
   }
 
-  void _goToHome() {
-    // Clear the result and go to dashboard
-    Provider.of<AssessmentResultProvider>(context, listen: false).clearResult();
+  void _goToDashboard() {
+    // Cancel auto-navigation timer
+    _autoNavigateTimer?.cancel();
+
+    // Clear result and go to dashboard
+    context.read<AssessmentProvider>().clearLastResult();
     context.go('/dashboard');
   }
 }

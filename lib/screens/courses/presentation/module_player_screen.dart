@@ -1,17 +1,22 @@
-// ASSUMPTION: Simple player placeholder; integrate with real player later.
-
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import '../application/course_providers.dart';
+import '../../../factories/course_repository_factory.dart';
+import '../application/course_providers.dart' as providers;
 import '../../courses/data/models/module.dart';
-
 import '../../../services/assessment_service.dart';
 import '../../../models/assessment/assessment_model.dart';
 
 class ModulePlayerScreen extends StatefulWidget {
-  const ModulePlayerScreen({super.key, required this.courseId, required this.moduleId});
+  const ModulePlayerScreen({
+    super.key,
+    required this.courseId,
+    required this.moduleId,
+    this.userId,
+  });
+
   final String courseId;
   final String moduleId;
+  final String? userId;
 
   @override
   State<ModulePlayerScreen> createState() => _ModulePlayerScreenState();
@@ -20,6 +25,7 @@ class ModulePlayerScreen extends StatefulWidget {
 class _ModulePlayerScreenState extends State<ModulePlayerScreen> {
   List<Assessment> _assessments = [];
   bool _assessmentsLoading = true;
+  final AssessmentService _assessmentService = AssessmentService();
 
   @override
   void initState() {
@@ -28,67 +34,96 @@ class _ModulePlayerScreenState extends State<ModulePlayerScreen> {
   }
 
   Future<void> _loadAssessments() async {
-    final assessments = await AssessmentService.getModuleAssessments(
-      courseId: widget.courseId,
-      moduleId: widget.moduleId,
-    );
-    if (mounted) {
-      setState(() {
-        _assessments = assessments;
-        _assessmentsLoading = false;
-      });
+    try {
+      final assessments = await _assessmentService.getModuleAssessments(
+        courseId: widget.courseId,
+        moduleId: widget.moduleId,
+      );
+
+      if (mounted) {
+        setState(() {
+          _assessments = assessments;
+          _assessmentsLoading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _assessments = [];
+          _assessmentsLoading = false;
+        });
+      }
     }
   }
 
   List<Assessment> _getAssessmentsWithModuleLockState(Module module) {
-    // Assessment should be locked if ANY video in the module is locked (stricter policy)
-    final bool hasLockedVideos = module.videos.any((video) => video.isLocked);
-    final bool assessmentShouldBeLocked = module.isLocked || hasLockedVideos;
-    
-    print('🔒 Debug Assessment Lock State:');
-    print('   Module: ${module.title} - isLocked: ${module.isLocked}');
-    print('   Videos locked count: ${module.videos.where((v) => v.isLocked).length}/${module.videos.length}');
-    print('   Has locked videos: $hasLockedVideos');
-    print('   Assessment will be locked: $assessmentShouldBeLocked');
-    
-    final lockedAssessments = _assessments.map((assessment) {
-      print('   Assessment: ${assessment.title} - will be locked: $assessmentShouldBeLocked');
-      return Assessment(
-        id: assessment.id,
-        title: assessment.title,
-        category: assessment.category,
-        duration: assessment.duration,
-        difficulty: assessment.difficulty,
-        description: assessment.description,
-        totalQuestions: assessment.totalQuestions,
-        passingScore: assessment.passingScore,
-        isActive: assessment.isActive,
-        isLocked: assessmentShouldBeLocked, // Lock if module is locked OR any video is locked
-      );
+    final hasLockedVideos = module.videos.any((v) => v.isLocked);
+    final assessmentLocked = module.isLocked || hasLockedVideos;
+
+    return _assessments.map((assessment) {
+      if (assessment.isLocked != assessmentLocked) {
+        return Assessment(
+          id: assessment.id,
+          title: assessment.title,
+          category: assessment.category,
+          duration: assessment.duration,
+          difficulty: assessment.difficulty,
+          description: assessment.description,
+          totalQuestions: assessment.totalQuestions,
+          passingScore: assessment.passingScore,
+          isActive: assessment.isActive,
+          isLocked: assessmentLocked,
+        );
+      }
+      return assessment;
     }).toList();
-    
-    print('   Locked assessments count: ${lockedAssessments.length}');
-    return lockedAssessments;
+  }
+
+  void _navigateToModule(Module module) {
+    if (!module.isLocked) {
+      context.go(
+        '/dashboard/courses/${widget.courseId}/module/${module.id}',
+        extra: {'userId': widget.userId},
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('This module is locked. Purchase course to access.')),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    // Get repository using factory
-    final repo = CourseProviders.getCourseRepository();
-    print('🎬 ModulePlayerScreen: Using ${repo.runtimeType} for course ${widget.courseId}, module ${widget.moduleId}');
+    final repo = CourseRepositoryFactory.getInstance(
+      context: context,
+      userId: widget.userId,
+    );
+
     return FutureBuilder(
       future: repo.getCourseById(widget.courseId),
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
-          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+          return const Scaffold(
+            backgroundColor: Color(0xFF020617),
+            body: Center(child: CircularProgressIndicator(color: Color(0xFF38BDF8))),
+          );
         }
         if (snapshot.hasError) {
-          return Scaffold(appBar: AppBar(), body: Center(child: Text('Error: ${snapshot.error}')));
+          return Scaffold(
+            appBar: AppBar(backgroundColor: const Color(0xFF0F172A)),
+            backgroundColor: const Color(0xFF020617),
+            body: Center(child: Text('Error: ${snapshot.error}', style: const TextStyle(color: Colors.white))),
+          );
         }
+
         final course = snapshot.data;
         if (course == null) {
-          return const Scaffold(body: Center(child: Text('Course not found')));
+          return const Scaffold(
+            backgroundColor: Color(0xFF020617),
+            body: Center(child: Text('Course not found', style: TextStyle(color: Colors.white))),
+          );
         }
+
         Module? module;
         for (final m in course.modules) {
           if (m.id == widget.moduleId) {
@@ -97,356 +132,186 @@ class _ModulePlayerScreenState extends State<ModulePlayerScreen> {
           }
         }
         module ??= course.modules.isNotEmpty ? course.modules.first : null;
+
         if (module == null) {
-          return Scaffold(appBar: AppBar(title: const Text('Module')),
-              body: const Center(child: Text('Module not found')));
+          return Scaffold(
+            appBar: AppBar(title: const Text('Module'), backgroundColor: const Color(0xFF0F172A)),
+            backgroundColor: const Color(0xFF020617),
+            body: const Center(child: Text('Module not found', style: TextStyle(color: Colors.white))),
+          );
         }
-        // Save last played (mock)
-        LastPlayedStore.instance.setLastPlayed(widget.courseId, widget.moduleId);
-        
-        // Make module non-null for the rest of the widget
+
+        providers.LastPlayedStore.instance.setLastPlayed(widget.courseId, widget.moduleId);
         final currentModule = module;
-        
+        final currentIndex = course.modules.indexOf(currentModule);
+
         return Scaffold(
+          backgroundColor: const Color(0xFF020617),
           appBar: AppBar(
             title: Text(currentModule.title),
+            backgroundColor: const Color(0xFF0F172A),
             leading: IconButton(
               icon: const Icon(Icons.arrow_back),
-              onPressed: () {
-                // Navigate back to the course detail page
-                context.go('/dashboard/courses/${widget.courseId}');
-              },
+              onPressed: () => context.go('/dashboard/courses/${widget.courseId}'),
             ),
           ),
           body: Column(
             children: [
-              // Scrollable content area
               Expanded(
                 child: ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
-                    // Module title
                     Text(
-                      currentModule.title, 
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.onSurface,
-                      ),
+                      currentModule.title,
+                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
                     ),
                     const SizedBox(height: 16),
-                    
 
-                    
-                    // All videos in module - Multiple video support
+                    // Videos
                     ...currentModule.videos.asMap().entries.map((entry) {
                       final index = entry.key;
                       final video = entry.value;
-                      
-                      return Container(
-                        width: double.infinity,
-                        margin: const EdgeInsets.only(bottom: 8),
-                        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-                        child: GestureDetector(
-                          onTap: () async {
-                            // Block navigation if this video is locked for the user
+
+                      return Card(
+                        color: const Color(0xFF0F172A),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        margin: const EdgeInsets.only(bottom: 12),
+                        child: ListTile(
+                          onTap: () {
                             if (video.isLocked) {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('This lesson is locked. Purchase the course to access.')),
+                                const SnackBar(content: Text('This lesson is locked. Purchase course to access.')),
                               );
                               return;
                             }
-
-                            // Use video URL from backend data
-                            final url = video.youtubeUrl;
-                            if (url.isNotEmpty) {
-                              // ignore: use_build_context_synchronously
-                              context.push('/dashboard/courses/${widget.courseId}/module/${widget.moduleId}/video?url=$url');
-                            }
+                            context.go(
+                              '/dashboard/courses/${widget.courseId}/module/${widget.moduleId}/video',
+                              extra: {
+                                'userId': widget.userId,
+                                'videoId': video.id,
+                                'courseId': widget.courseId,
+                                'moduleId': widget.moduleId,
+                                'videoUrl': video.videoUrl,
+                              },
+                            );
                           },
-                          child: Row(
-                            children: [
-                              // Play icon - fixed size
-                              Icon(
-                                // show lock icon when the video is locked
-                                video.isLocked ? Icons.lock : Icons.play_circle_filled,
-                                color: video.isLocked ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4) : Theme.of(context).colorScheme.primary,
-                                size: 24,
-                              ),
-                              const SizedBox(width: 12),
-                              // Video info - flexible to take available space
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    // Video title with fallback numbering
-                                    Text(
-                                      video.title.isNotEmpty 
-                                        ? video.title 
-                                        : 'Video ${index + 1}',
-                                      style: const TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    const SizedBox(height: 2),
-                                    // Video-specific duration
-                                    Text(
-                                      video.durationSec > 0 
-                                        ? '${(video.durationSec / 60).round()} min'
-                                        : '${(currentModule.durationSec / 60).round()} min',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              // Navigation arrow - fixed size
-                              Padding(
-                                padding: const EdgeInsets.only(left: 8),
-                                child: Icon(
-                                  video.isLocked ? Icons.lock_outline : Icons.play_arrow,
-                                  color: video.isLocked ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5) : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-                                  size: 20,
-                                ),
-                              ),
-                            ],
+                          leading: Icon(
+                            video.isLocked ? Icons.lock : Icons.play_circle_fill,
+                            color: video.isLocked ? Colors.white54 : const Color(0xFF38BDF8),
+                            size: 28,
+                          ),
+                          title: Text(
+                            video.title.isNotEmpty ? video.title : 'Video ${index + 1}',
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500, fontSize: 16),
+                          ),
+                          subtitle: Text(
+                            video.durationSec > 0
+                                ? '${(video.durationSec / 60).round()} min'
+                                : '${(currentModule.durationSec / 60).round()} min',
+                            style: const TextStyle(color: Colors.white70, fontSize: 14),
+                          ),
+                          trailing: Icon(
+                            video.isLocked ? Icons.lock_outline : Icons.play_arrow,
+                            color: video.isLocked ? Colors.white38 : Colors.white70,
                           ),
                         ),
                       );
                     }),
-                    
-                    // Fallback if no videos exist
-                    if (currentModule.videos.isEmpty)
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-                        child: GestureDetector(
-                          onTap: () async {
-                            if (currentModule.isLocked) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('This lesson is locked. Purchase the course to access.')),
+
+                    const SizedBox(height: 24),
+                    const Text(
+                      'Assessment',
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                    const SizedBox(height: 12),
+
+                    if (_assessmentsLoading)
+                      const Center(child: CircularProgressIndicator(color: Color(0xFF38BDF8)))
+                    else if (_assessments.isEmpty)
+                      const Center(
+                        child: Text(
+                          'No assessment available for this module',
+                          style: TextStyle(color: Colors.white70, fontStyle: FontStyle.italic),
+                        ),
+                      )
+                    else
+                      ..._getAssessmentsWithModuleLockState(currentModule).map((assessment) {
+                        return Card(
+                          color: const Color(0xFF0F172A),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          margin: const EdgeInsets.only(bottom: 12),
+                          child: ListTile(
+                            onTap: () {
+                              if (assessment.isLocked) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Complete all videos to unlock assessment')),
+                                );
+                                return;
+                              }
+                              context.push(
+                                '/dashboard/assessment/question/${assessment.id}',
+                                extra: {'userId': widget.userId},
                               );
-                              return;
-                            }
-                            final url = currentModule.videoUrl;
-                            if (url.isNotEmpty) {
-                              // ignore: use_build_context_synchronously
-                              context.push('/dashboard/courses/${widget.courseId}/module/${widget.moduleId}/video?url=$url');
-                            }
-                          },
-                          child: Row(
-                            children: [
-                              Icon(
-                                currentModule.isLocked ? Icons.lock : Icons.play_circle_filled,
-                                color: currentModule.isLocked ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4) : Theme.of(context).colorScheme.primary,
-                                size: 24,
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Text(
-                                      'Video 1',
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      '${(currentModule.durationSec / 60).round()} min',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.only(left: 8),
-                                child: Icon(
-                                  currentModule.isLocked ? Icons.lock_outline : Icons.play_arrow,
-                                  color: currentModule.isLocked ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5) : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-                                  size: 20,
-                                ),
-                              ),
-                            ],
+                            },
+                            leading: Icon(
+                              assessment.isLocked ? Icons.lock : Icons.quiz,
+                              color: assessment.isLocked ? Colors.white54 : const Color(0xFF38BDF8),
+                              size: 28,
+                            ),
+                            title: Text(
+                              assessment.title,
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500, fontSize: 16),
+                            ),
+                            trailing: Icon(
+                              assessment.isLocked ? Icons.lock_outline : Icons.arrow_forward_ios,
+                              color: assessment.isLocked ? Colors.white38 : const Color(0xFF38BDF8),
+                              size: 16,
+                            ),
                           ),
-                        ),
-                      ),
-                    
-                    // Assessment section
-                    if (!_assessmentsLoading && _assessments.isNotEmpty) ...[
-                      const SizedBox(height: 24),
-                      Text(
-                        'Assessment',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      ..._getAssessmentsWithModuleLockState(currentModule).map((assessment) => Container(
-                        width: double.infinity,
-                        margin: const EdgeInsets.only(bottom: 8),
-                        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-                        child: GestureDetector(
-                          onTap: () {
-                            print('🎯 Assessment tap: ${assessment.title} - isLocked: ${assessment.isLocked}');
-                            // Block navigation if this assessment is locked for the user
-                            if (assessment.isLocked) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('This assessment is locked. Purchase the course to access.')),
-                              );
-                              return;
-                            }
-                            
-                            // Navigate to assessment screen
-                            print('🚀 Navigating to assessment: ${assessment.id}');
-                            print('   📍 Course: ${widget.courseId}, Module: ${widget.moduleId}');
-                            context.push('/dashboard/courses/${widget.courseId}/module/${widget.moduleId}/assessment/${assessment.id}');
-                          },
-                          child: Row(
-                            children: [
-                              // Assessment icon - fixed size, show lock when locked
-                              Icon(
-                                assessment.isLocked ? Icons.lock : Icons.quiz,
-                                color: assessment.isLocked ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4) : Theme.of(context).colorScheme.secondary,
-                                size: 24,
-                              ),
-                              const SizedBox(width: 12),
-                              // Assessment info - flexible to take available space
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    // Assessment title
-                                    Text(
-                                      assessment.title,
-                                      style: const TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    const SizedBox(height: 2),
-                                    // Assessment details
-                                    Text(
-                                      '${assessment.totalQuestions} questions • ${assessment.duration} min',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              // Navigation arrow or lock icon - fixed size
-                              Padding(
-                                padding: const EdgeInsets.only(left: 8),
-                                child: Icon(
-                                  assessment.isLocked ? Icons.lock_outline : Icons.arrow_forward_ios,
-                                  color: assessment.isLocked ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5) : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-                                  size: 16,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      )),
-                    ],
-                    
-                    // Loading indicator for assessments
-                    if (_assessmentsLoading) ...[
-                      const SizedBox(height: 24),
-                      Text(
-                        'Assessment',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        child: const Center(
-                          child: SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                        ),
-                      ),
-                    ],
-                    
-                    // Add some bottom padding to prevent content from being hidden behind the button
-                    const SizedBox(height: 100),
+                        );
+                      }),
                   ],
                 ),
               ),
-              // Fixed Next lesson button at bottom
+
+              // Prev/Next navigation
               Container(
                 padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).scaffoldBackgroundColor,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.1),
-                      blurRadius: 4,
-                      offset: const Offset(0, -2),
-                    ),
-                  ],
-                ),
+                color: const Color(0xFF0F172A),
                 child: SafeArea(
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        final modules = course.modules;
-                        final idx = modules.indexWhere((m) => m.id == widget.moduleId);
-                        if (idx >= 0 && idx < modules.length - 1) {
-                          final next = modules[idx + 1];
-                          if (!next.isLocked) {
-                            // Use go_router for navigation
-                            // ignore: use_build_context_synchronously
-                            context.go('/dashboard/courses/${course.id}/module/${next.id}');
-                          }
-                        }
-                      },
-                      icon: Icon(
-                        Icons.skip_next,
-                        color: Theme.of(context).colorScheme.onPrimary,
-                      ),
-                      label: Text(
-                        'Next lesson',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Theme.of(context).colorScheme.onPrimary,
+                  child: Row(
+                    children: [
+                      if (currentIndex > 0)
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: () => _navigateToModule(course.modules[currentIndex - 1]),
+                            icon: const Icon(Icons.skip_previous),
+                            label: const Text('Previous'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF1E293B),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                          ),
                         ),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Theme.of(context).colorScheme.primary,
-                        foregroundColor: Theme.of(context).colorScheme.onPrimary,
-                        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
+                      if (currentIndex > 0 && currentIndex < course.modules.length - 1)
+                        const SizedBox(width: 12),
+                      if (currentIndex < course.modules.length - 1)
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: () => _navigateToModule(course.modules[currentIndex + 1]),
+                            icon: const Icon(Icons.skip_next),
+                            label: const Text('Next'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF38BDF8),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                          ),
                         ),
-                        elevation: 2,
-                      ),
-                    ),
+                    ],
                   ),
                 ),
               ),
@@ -457,5 +322,3 @@ class _ModulePlayerScreenState extends State<ModulePlayerScreen> {
     );
   }
 }
-
-

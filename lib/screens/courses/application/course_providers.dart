@@ -1,6 +1,7 @@
 // Enhanced course providers with Spring Boot backend integration
 // Automatically uses remote repository with mock fallback
 
+import 'package:flutter/material.dart';
 import '../../../factories/course_repository_factory.dart';
 import '../data/course_repository.dart';
 export '../data/course_repository.dart';
@@ -9,9 +10,13 @@ export '../data/course_repository.dart';
 class CourseProviders {
   /// Get the configured course repository instance
   /// Returns RemoteCourseRepository (with mock fallback) or MockCourseRepository
-  static CourseRepository getCourseRepository() {
-    final repo = CourseRepositoryFactory.getInstance();
-    print('📚 Using repository type: ${CourseRepositoryFactory.getRepositoryType()}');
+  static CourseRepository getCourseRepository({BuildContext? context, String? userId}) {
+    final repo = CourseRepositoryFactory.getInstance(
+      context: context,
+      userId: userId,
+    );
+    print('📚 Using repository type: RemoteCourseRepository');
+    print('👤 Repository created for user: $userId');
     return repo;
   }
 }
@@ -28,5 +33,3 @@ class LastPlayedStore {
 
   String? lastForCourse(String courseId) => _courseToModule[courseId];
 }
-
-

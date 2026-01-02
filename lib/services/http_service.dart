@@ -45,7 +45,13 @@ class HttpService {
   
   // Get full URL
   String _getFullUrl(String endpoint) {
-    return '${EnvironmentConfig.fullApiUrl}$endpoint';
+    final fullUrl = '${EnvironmentConfig.fullApiUrl}$endpoint';
+    print('🌐 Constructing URL:');
+    print('🌐   Base URL: ${EnvironmentConfig.baseUrl}');
+    print('🌐   API Version: ${EnvironmentConfig.apiVersion}');
+    print('🌐   Endpoint: $endpoint');
+    print('🌐   Full URL: $fullUrl');
+    return fullUrl;
   }
   
   // Handle HTTP response
@@ -232,25 +238,31 @@ class HttpService {
   }
 }
 
-/// API Response wrapper
+/// API Response wrapper - Robust Version
 class ApiResponse<T> {
   final bool isSuccess;
   final T? data;
-  final String? error;
+  final String? _error;
   final int? statusCode;
-  
+
   ApiResponse._({
     required this.isSuccess,
     this.data,
-    this.error,
+    String? error,
     this.statusCode,
-  });
-  
+  }) : _error = error;
+
   factory ApiResponse.success(T data) {
     return ApiResponse._(isSuccess: true, data: data);
   }
-  
+
   factory ApiResponse.error(String error, [int? statusCode]) {
     return ApiResponse._(isSuccess: false, error: error, statusCode: statusCode);
   }
+
+  // Always returns a non-null string
+  String get errorMessage => _error ?? 'Unknown error';
+
+  // For backward compatibility
+  String? get error => _error;
 }

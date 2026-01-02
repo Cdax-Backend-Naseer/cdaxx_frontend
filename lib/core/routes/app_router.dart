@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../screens/onboarding/before_signup_course_detail_screen.dart';
+import '../../screens/onboarding/before_signup_screen.dart';
+import '../../screens/onboarding/onboarding_screen.dart';
 import 'page_transitions.dart';
 import '../../screens/auth/presentation/forgot_password_screen.dart';
 import '../../screens/auth/presentation/login_screen.dart';
@@ -11,7 +14,6 @@ import '../../screens/dashboard/presentation/home_screen.dart';
 import '../../screens/courses/presentation/course_list_screen.dart';
 import '../../screens/courses/presentation/course_detail_screen.dart';
 import '../../screens/courses/presentation/module_player_screen.dart';
-import '../../screens/courses/presentation/assessment_question_screen.dart' as courses;
 import '../../screens/courses/presentation/code_challenge_screen.dart';
 import '../../screens/courses/presentation/score_screen.dart';
 import '../../screens/courses/presentation/score_preview_screen.dart';
@@ -45,16 +47,58 @@ class AppRouter {
 
   /// Global navigator key if needed in the future for dialogs, etc.
   static final GlobalKey<NavigatorState> navigatorKey =
-      GlobalKey<NavigatorState>();
+  GlobalKey<NavigatorState>();
 
   static final GoRouter router = GoRouter(
     navigatorKey: navigatorKey,
     initialLocation: '/splash',
     routes: <GoRoute>[
+// In your router.dart, update the root route:
+      GoRoute(
+        path: '/',
+        redirect: (context, state) {
+          print('🎯 ROOT ROUTE REDIRECT: Redirecting / to /onboarding');
+          print('   ├─ State location: ${state.uri.toString()}');
+          print('   ├─ State matched location: ${state.matchedLocation}');
+          return '/onboarding';
+        },
+      ),
+
       GoRoute(
         path: '/splash',
         name: 'splash',
         builder: (context, state) => const SplashScreen(),
+      ),
+      GoRoute(
+        path: '/onboarding',
+        name: 'onboarding',
+        builder: (context, state) => const OnboardingScreen(),
+      ),
+      GoRoute(
+        path: '/onboarding-slides',
+        name: 'onboardingSlides',
+        builder: (context, state) => const OnboardingSlidesScreen(),
+      ),
+
+      GoRoute(
+        path: '/before-sign-up',
+        name: 'beforeSignUp',
+        builder: (context, state) => const BeforeSignUpScreen(),
+      ),
+
+      GoRoute(
+        path: '/before-sign-up/course/:courseId',
+        name: 'beforeSignUpCourseDetail',
+        builder: (context, state) {
+          final courseId = state.pathParameters['courseId']!;
+          final extra = state.extra as Map<String, dynamic>? ?? {};
+          return BeforeSignupCourseDetailScreen(
+            courseId: courseId,
+            courseTitle: extra['title'],
+            courseDescription: extra['description'],
+            thumbnailUrl: extra['thumbnail'],
+          );
+        },
       ),
       GoRoute(
         path: '/login',
@@ -91,20 +135,42 @@ class AppRouter {
           GoRoute(
             path: 'courses',
             name: 'dashboardCourses',
-            builder: (context, state) => const CourseListScreen(),
+            builder: (context, state) {
+              final extra = state.extra as Map<String, dynamic>?;
+
+              final bool showSubscribedOnly =
+                  extra?['showSubscribedOnly'] == true;
+
+              return CourseListScreen(
+                showSubscribedOnly: showSubscribedOnly,
+              );
+            },
           ),
+
+
           GoRoute(
             path: 'courses/:id',
             name: 'dashboardCourseDetail',
-            pageBuilder: (context, state) => AppPageTransitions.heroTransition(
-              child: CourseDetailScreen(courseId: state.pathParameters['id']!),
-              state: state,
-            ),
+            pageBuilder: (context, state) {
+              final courseId = state.pathParameters['id']!;
+              final Map<String, dynamic>? extra = state.extra as Map<String, dynamic>?;
+              final userId = extra?['userId'] as String?;
+
+              print('🔍 GoRouter: Navigating to course $courseId for user $userId');
+
+              return AppPageTransitions.heroTransition(
+                child: CourseDetailScreen(
+                  courseId: courseId,
+                  userId: userId,
+                ),
+                state: state,
+              );
+            },
             routes: [
               GoRoute(
                 path: 'assessment/question',
-                name: 'dashboardAssessmentQuestion',
-                builder: (context, state) => courses.AssessmentQuestionScreen(courseId: state.pathParameters['id']!),
+                name: 'dashboardCourseAssessmentQuestion',
+                builder: (context, state) => assessment.AssessmentQuestionScreen(assessmentId: state.pathParameters['id']!),
               ),
               GoRoute(
                 path: 'assessment/score',
@@ -132,32 +198,81 @@ class AppRouter {
                 name: 'dashboardCertificate',
                 builder: (context, state) => CertificateScreen(courseId: state.pathParameters['id']!),
               ),
-              GoRoute(
-                path: 'module/:moduleId/video',
-                name: 'dashboardModuleVideo',
-                builder: (context, state) {
-                  final url = state.uri.queryParameters['url'] ?? '';
-                  return CourseVideoScreen(videoUrl: url);
-                },
-              ),
             ],
           ),
           GoRoute(
             path: 'courses/:courseId/module/:moduleId',
             name: 'dashboardModulePlayer',
-            builder: (context, state) => ModulePlayerScreen(
-              courseId: state.pathParameters['courseId']!,
-              moduleId: state.pathParameters['moduleId']!,
-            ),
+            pageBuilder: (context, state) {
+              final courseId = state.pathParameters['courseId']!;
+              final moduleId = state.pathParameters['moduleId']!;
+              final Map<String, dynamic>? extra = state.extra as Map<String, dynamic>?;
+              final userId = extra?['userId'] as String?;
+
+              print('🔍 GoRouter: Navigating to module $moduleId in course $courseId for user $userId');
+
+              return MaterialPage(
+                key: state.pageKey,
+                child: ModulePlayerScreen(
+                  courseId: courseId,
+                  moduleId: moduleId,
+                  userId: userId,
+                ),
+              );
+            },
             routes: [
+              GoRoute(
+                path: 'video',
+                name: 'dashboardModuleVideo',
+                pageBuilder: (context, state) {
+                  final courseId = state.pathParameters['courseId']!;
+                  final moduleId = state.pathParameters['moduleId']!;
+                  final Map<String, dynamic>? extra = state.extra as Map<String, dynamic>?;
+
+                  final userId = extra?['userId'] as String?;
+                  final videoId = extra?['videoId'] as String?;
+                  final videoUrl = extra?['videoUrl'] as String? ?? '';
+
+                  print('🔍 GoRouter Video Navigation:');
+                  print('  Course: $courseId');
+                  print('  Module: $moduleId');
+                  print('  Video: $videoId');
+                  print('  User: $userId');
+                  print('  URL: $videoUrl');
+
+                  return MaterialPage(
+                    key: state.pageKey,
+                    child: CourseVideoScreen(
+                      videoUrl: videoUrl,
+                      videoId: videoId,
+                      courseId: courseId,
+                      moduleId: moduleId,
+                      userId: userId,
+                    ),
+                  );
+                },
+              ),
               GoRoute(
                 path: 'assessment/:assessmentId',
                 name: 'dashboardModuleAssessment',
-                builder: (context, state) => ModuleAssessmentScreen(
-                  courseId: state.pathParameters['courseId']!,
-                  moduleId: state.pathParameters['moduleId']!,
-                  assessmentId: state.pathParameters['assessmentId']!,
-                ),
+                pageBuilder: (context, state) {
+                  final courseId = state.pathParameters['courseId']!;
+                  final moduleId = state.pathParameters['moduleId']!;
+                  final assessmentId = state.pathParameters['assessmentId']!;
+                  final Map<String, dynamic>? extra = state.extra as Map<String, dynamic>?;
+                  final userId = extra?['userId'] as String?;
+
+                  print('🔍 GoRouter Assessment Navigation: course=$courseId, module=$moduleId, assessment=$assessmentId, user=$userId');
+
+                  return MaterialPage(
+                    key: state.pageKey,
+                    child: ModuleAssessmentScreen(
+                      courseId: courseId,
+                      moduleId: moduleId,
+                      assessmentId: assessmentId,
+                    ),
+                  );
+                },
               ),
             ],
           ),
@@ -233,10 +348,21 @@ class AppRouter {
             routes: [
               GoRoute(
                 path: 'question/:assessmentId',
-                name: 'dashboardAssessmentQuestionNew',
-                builder: (context, state) => assessment.AssessmentQuestionScreen(
-                  assessmentId: state.pathParameters['assessmentId']!,
-                ),
+                name: 'dashboardAssessmentQuestion',
+                builder: (context, state) {
+                  final assessmentId = state.pathParameters['assessmentId']!;
+                  final Map<String, dynamic>? extra = state.extra as Map<String, dynamic>?;
+                  final userId = extra?['userId'] as String?;
+
+                  print('🔍 Router: Creating AssessmentQuestionScreen');
+                  print('   assessmentId: $assessmentId');
+                  print('   userId from extra: $userId');
+
+                  return assessment.AssessmentQuestionScreen(
+                    assessmentId: assessmentId,
+                    userId: userId,  // Pass it here
+                  );
+                },
               ),
               GoRoute(
                 path: 'result/:assessmentId',
@@ -292,7 +418,3 @@ class AppRouter {
     ],
   );
 }
-
-// Phase 3: Placeholder class removed - no longer needed
-
-

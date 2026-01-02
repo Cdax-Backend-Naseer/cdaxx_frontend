@@ -1,6 +1,16 @@
 // Course Model
 // Represents course data from the backend
 import 'module_model.dart';
+String safeUrl(String? url) {
+  if (url == null) return '';
+  final trimmed = url.trim();
+  if (trimmed.isEmpty || trimmed == 'null' || trimmed.startsWith('file:///')) {
+    return '';
+  }
+  if (!trimmed.startsWith('http')) return '';
+  return trimmed;
+}
+
 
 class CourseModel {
   final String id;
@@ -9,7 +19,7 @@ class CourseModel {
   final String shortDescription;
   final String instructor;
   final String instructorId;
-  final String? thumbnailImage;
+  final String? thumbnailUrl;
   final String? bannerImage;
   final double price;
   final double? discountPrice;
@@ -30,7 +40,9 @@ class CourseModel {
   final List<ModuleModel> modules;
   final CourseRequirements? requirements;
   final CourseWhatYouWillLearn? whatYouWillLearn;
-  
+  final bool isSubscribed;
+
+
   CourseModel({
     required this.id,
     required this.title,
@@ -38,7 +50,7 @@ class CourseModel {
     required this.shortDescription,
     required this.instructor,
     required this.instructorId,
-    this.thumbnailImage,
+    this.thumbnailUrl,
     this.bannerImage,
     required this.price,
     this.discountPrice,
@@ -59,17 +71,18 @@ class CourseModel {
     required this.modules,
     this.requirements,
     this.whatYouWillLearn,
+    required this.isSubscribed,
   });
-  
+
   double get effectivePrice => discountPrice ?? price;
-  
+
   bool get hasDiscount => discountPrice != null && discountPrice! < price;
-  
+
   double get discountPercentage {
     if (!hasDiscount) return 0;
     return ((price - effectivePrice) / price) * 100;
   }
-  
+
   String get formattedDuration {
     final hours = totalDuration ~/ 60;
     final minutes = totalDuration % 60;
@@ -78,10 +91,36 @@ class CourseModel {
     }
     return '${minutes}m';
   }
-  
+
   int get totalLessons => modules.fold(0, (sum, module) => sum + (module.lessons.length));
-  
+
   factory CourseModel.fromJson(Map<String, dynamic> json) {
+    print('\n📦 DEBUG CourseModel.fromJson():');
+    print('   ├─ Course ID: ${json['id']}');
+    print('   ├─ Course Title: ${json['title']}');
+
+    // Debug isSubscribed field
+    print('   ├─ isSubscribed raw value: ${json['isSubscribed']}');
+    print('   ├─ isSubscribed type: ${json['isSubscribed']?.runtimeType}');
+    print('   ├─ isSubscribed is null? ${json['isSubscribed'] == null}');
+    print('   ├─ isSubscribed == true? ${json['isSubscribed'] == true}');
+    print('   ├─ isSubscribed == "true"? ${json['isSubscribed'] == "true"}');
+    print('   ├─ isSubscribed == 1? ${json['isSubscribed'] == 1}');
+
+    // Try to parse isSubscribed
+    bool isSubscribed = false;
+    if (json['isSubscribed'] != null) {
+      final raw = json['isSubscribed'];
+      if (raw is bool) {
+        isSubscribed = raw;
+      } else if (raw is int) {
+        isSubscribed = raw == 1;
+      } else if (raw is String) {
+        isSubscribed = raw.toLowerCase() == 'true';
+      }
+      print('   ├─ Parsed isSubscribed: $isSubscribed');
+    }
+
     return CourseModel(
       id: json['id']?.toString() ?? '',
       title: json['title']?.toString() ?? '',
@@ -89,8 +128,8 @@ class CourseModel {
       shortDescription: json['shortDescription']?.toString() ?? '',
       instructor: json['instructor']?.toString() ?? '',
       instructorId: json['instructorId']?.toString() ?? '',
-      thumbnailImage: json['thumbnailImage']?.toString(),
-      bannerImage: json['bannerImage']?.toString(),
+      thumbnailUrl: safeUrl(json['thumbnailUrl']?.toString()),
+      bannerImage: safeUrl(json['bannerImage']?.toString()),
       price: (json['price'] ?? 0).toDouble(),
       discountPrice: json['discountPrice']?.toDouble(),
       rating: (json['rating'] ?? 0).toDouble(),
@@ -104,27 +143,28 @@ class CourseModel {
       isPublished: json['isPublished'] ?? false,
       isFeatured: json['isFeatured'] ?? false,
       isPopular: json['isPopular'] ?? false,
-      createdAt: json['createdAt'] != null 
+      isSubscribed: isSubscribed,  // Use parsed value
+      createdAt: json['createdAt'] != null
           ? DateTime.parse(json['createdAt'].toString())
           : DateTime.now(),
-      updatedAt: json['updatedAt'] != null 
+      updatedAt: json['updatedAt'] != null
           ? DateTime.parse(json['updatedAt'].toString())
           : DateTime.now(),
-      publishedAt: json['publishedAt'] != null 
+      publishedAt: json['publishedAt'] != null
           ? DateTime.tryParse(json['publishedAt'].toString())
           : null,
       modules: (json['modules'] as List<dynamic>?)
           ?.map((e) => ModuleModel.fromJson(e))
           .toList() ?? [],
-      requirements: json['requirements'] != null 
+      requirements: json['requirements'] != null
           ? CourseRequirements.fromJson(json['requirements'])
           : null,
-      whatYouWillLearn: json['whatYouWillLearn'] != null 
+      whatYouWillLearn: json['whatYouWillLearn'] != null
           ? CourseWhatYouWillLearn.fromJson(json['whatYouWillLearn'])
           : null,
     );
   }
-  
+
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -133,7 +173,7 @@ class CourseModel {
       'shortDescription': shortDescription,
       'instructor': instructor,
       'instructorId': instructorId,
-      'thumbnailImage': thumbnailImage,
+      'thumbnailUrl': thumbnailUrl,
       'bannerImage': bannerImage,
       'price': price,
       'discountPrice': discountPrice,
@@ -148,6 +188,7 @@ class CourseModel {
       'isPublished': isPublished,
       'isFeatured': isFeatured,
       'isPopular': isPopular,
+      'isSubscribed': isSubscribed,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
       'publishedAt': publishedAt?.toIso8601String(),
@@ -156,7 +197,7 @@ class CourseModel {
       'whatYouWillLearn': whatYouWillLearn?.toJson(),
     };
   }
-  
+
   CourseModel copyWith({
     String? id,
     String? title,
@@ -179,6 +220,7 @@ class CourseModel {
     bool? isPublished,
     bool? isFeatured,
     bool? isPopular,
+    bool? isSubscribed,
     DateTime? createdAt,
     DateTime? updatedAt,
     DateTime? publishedAt,
@@ -193,7 +235,7 @@ class CourseModel {
       shortDescription: shortDescription ?? this.shortDescription,
       instructor: instructor ?? this.instructor,
       instructorId: instructorId ?? this.instructorId,
-      thumbnailImage: thumbnailImage ?? this.thumbnailImage,
+      thumbnailUrl: thumbnailImage ?? this.thumbnailUrl,
       bannerImage: bannerImage ?? this.bannerImage,
       price: price ?? this.price,
       discountPrice: discountPrice ?? this.discountPrice,
@@ -208,6 +250,7 @@ class CourseModel {
       isPublished: isPublished ?? this.isPublished,
       isFeatured: isFeatured ?? this.isFeatured,
       isPopular: isPopular ?? this.isPopular,
+      isSubscribed: isSubscribed ?? this.isSubscribed,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       publishedAt: publishedAt ?? this.publishedAt,
@@ -222,13 +265,13 @@ class CourseRequirements {
   final List<String> prerequisites;
   final List<String> equipment;
   final String minimumLevel;
-  
+
   CourseRequirements({
     required this.prerequisites,
     required this.equipment,
     required this.minimumLevel,
   });
-  
+
   factory CourseRequirements.fromJson(Map<String, dynamic> json) {
     return CourseRequirements(
       prerequisites: (json['prerequisites'] as List<dynamic>?)
@@ -238,7 +281,7 @@ class CourseRequirements {
       minimumLevel: json['minimumLevel']?.toString() ?? 'beginner',
     );
   }
-  
+
   Map<String, dynamic> toJson() {
     return {
       'prerequisites': prerequisites,
@@ -252,13 +295,13 @@ class CourseWhatYouWillLearn {
   final List<String> outcomes;
   final List<String> skills;
   final String certificate;
-  
+
   CourseWhatYouWillLearn({
     required this.outcomes,
     required this.skills,
     required this.certificate,
   });
-  
+
   factory CourseWhatYouWillLearn.fromJson(Map<String, dynamic> json) {
     return CourseWhatYouWillLearn(
       outcomes: (json['outcomes'] as List<dynamic>?)
@@ -268,7 +311,7 @@ class CourseWhatYouWillLearn {
       certificate: json['certificate']?.toString() ?? '',
     );
   }
-  
+
   Map<String, dynamic> toJson() {
     return {
       'outcomes': outcomes,

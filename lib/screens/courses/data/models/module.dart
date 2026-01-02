@@ -104,13 +104,13 @@ class Module {
       title: title,
       durationSec: durationSec,
       isLocked: isLocked,
-      videos: [
-        Video.fromModuleData(
-          moduleId: id,
-          videoUrl: videoUrl,
-          isLocked: isLocked,
-        ),
-      ],
+      // videos: [
+      //   Video.fromModuleData(
+      //     moduleId: id,
+      //     videoUrl: videoUrl,
+      //     isLocked: isLocked,
+      //   ),
+      // ],
       assessment: null, // Legacy modules don't have assessments
     );
   }
