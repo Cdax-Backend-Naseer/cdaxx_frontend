@@ -8,6 +8,8 @@ class CourseService {
   // =============== EXISTING METHODS ===============
 
   // Get all courses
+// TEMPORARY DEBUG VERSION - Replace your getAllCourses() method with this:
+
   Future<ApiResponse<List<Course>>> getAllCourses({
     int page = 0,
     int size = 20,
@@ -15,6 +17,8 @@ class CourseService {
     String? search,
   }) async {
     try {
+      print('🌐 DEBUG: Starting getAllCourses()');
+
       final queryParams = <String, String>{
         'page': page.toString(),
         'size': size.toString(),
@@ -23,14 +27,64 @@ class CourseService {
       if (category != null) queryParams['category'] = category;
       if (search != null) queryParams['search'] = search;
 
-      return await _httpService.get<List<Course>>(
+      print('🌐 DEBUG: Making HTTP request...');
+      final response = await _httpService.get<List<Course>>(
         ApiEndpoints.allCourses,
-            (data) => (data['content'] as List)
-            .map((item) => Course.fromJson(item))
-            .toList(),
+            (data) {
+          print('🌐 DEBUG: Received response data');
+          print('🌐 DEBUG: Data type: ${data.runtimeType}');
+          print('🌐 DEBUG: Data keys: ${data is Map ? (data as Map).keys.toList() : "Not a Map"}');
+
+          // FIX: Try different response formats
+          if (data is Map && data.containsKey('data')) {
+            print('🌐 DEBUG: Found "data" key in response');
+            final dataList = data['data'];
+            print('🌐 DEBUG: dataList type: ${dataList.runtimeType}');
+            print('🌐 DEBUG: dataList length: ${dataList is List ? dataList.length : "Not a List"}');
+
+            if (dataList is List) {
+              // Parse each course with error handling
+              final List<Course> courses = [];
+              for (var i = 0; i < dataList.length; i++) {
+                try {
+                  final item = dataList[i];
+                  print('🌐 DEBUG: Parsing course $i: ${item['title']}');
+                  final course = Course.fromJson(item);
+                  courses.add(course);
+                } catch (e) {
+                  print('❌ DEBUG: Error parsing course $i: $e');
+                  print('❌ DEBUG: Course data: ${dataList[i]}');
+                }
+              }
+              print('✅ DEBUG: Successfully parsed ${courses.length} courses');
+              return courses;
+            }
+          } else if (data is Map && data.containsKey('content')) {
+            print('🌐 DEBUG: Found "content" key instead of "data"');
+            final content = data['content'];
+            if (content is List) {
+              return content.map((item) => Course.fromJson(item)).toList();
+            }
+          } else if (data is List) {
+            print('🌐 DEBUG: Response is a plain List');
+            return data.map((item) => Course.fromJson(item)).toList();
+          }
+
+          print('❌ DEBUG: Unknown response format');
+          throw Exception('Unexpected response format');
+        },
         queryParams: queryParams,
       );
-    } catch (e) {
+
+      print('🌐 DEBUG: HTTP Service response received');
+      print('🌐 DEBUG: Is success: ${response.isSuccess}');
+      print('🌐 DEBUG: Error: ${response.error}');
+
+      return response;
+
+    } catch (e, stackTrace) {
+      print('❌ DEBUG: Exception in getAllCourses: $e');
+      print('❌ DEBUG: Stack trace: $stackTrace');
       return ApiResponse.error('Failed to fetch courses: ${e.toString()}');
     }
   }
@@ -352,6 +406,9 @@ class CourseService {
 
 // =============== MODEL CLASSES ===============
 
+// =============== MODEL CLASSES ===============
+// FIXED: Updated to match API response and CourseListCard requirements
+
 class Course {
   final String id;
   final String title;
@@ -361,6 +418,12 @@ class Course {
   final double rating;
   final int duration;
   final String imageUrl;
+  final bool isLocked;          // Add this
+  final String thumbnailUrl;    // Add this
+  final double progressPercent; // Add this
+  final bool isSubscribed;      // Add this
+  final bool purchased;         // Add this
+  final int totalDuration;      // Add this for API compatibility
 
   Course({
     required this.id,
@@ -370,20 +433,55 @@ class Course {
     required this.price,
     required this.rating,
     required this.duration,
-    required this.imageUrl, required isLocked, required thumbnailUrl, required progressPercent,
+    required this.imageUrl,
+    required this.isLocked,
+    required this.thumbnailUrl,
+    required this.progressPercent,
+    required this.isSubscribed,
+    required this.purchased,
+    required this.totalDuration,
   });
 
   factory Course.fromJson(Map<String, dynamic> json) {
+    print('📦 Parsing Course JSON: ${json['title']}');
+
+    // Calculate isLocked from isSubscribed
+    final bool isSubscribed = json['isSubscribed'] ?? false;
+
     return Course(
-      id: json['id'] ?? '',
-      title: json['title'] ?? '',
-      description: json['description'] ?? '',
-      instructor: json['instructor'] ?? '',
+      id: json['id']?.toString() ?? '',
+      title: json['title']?.toString() ?? 'Untitled Course',
+      description: json['description']?.toString() ?? '',
+      instructor: json['instructor']?.toString() ?? 'Unknown Instructor',
       price: (json['price'] ?? 0).toDouble(),
       rating: (json['rating'] ?? 0).toDouble(),
-      duration: json['duration'] ?? 0,
-      imageUrl: json['imageUrl'] ?? '', isLocked: null, thumbnailUrl: null, progressPercent: null,
+      duration: json['totalDuration'] ?? 0, // API uses totalDuration
+      imageUrl: json['thumbnailUrl']?.toString() ?? '', // Map thumbnailUrl to imageUrl
+      isLocked: !isSubscribed, // Locked if not subscribed
+      thumbnailUrl: json['thumbnailUrl']?.toString() ?? '',
+      progressPercent: (json['progressPercent'] ?? 0).toDouble(),
+      isSubscribed: isSubscribed,
+      purchased: isSubscribed, // For compatibility with CourseListCard
+      totalDuration: json['totalDuration'] ?? 0,
     );
+  }
+
+  // Helper method to convert to Map for CourseListCard compatibility
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'title': title,
+      'description': description,
+      'thumbnailUrl': thumbnailUrl,
+      'price': price,
+      'isSubscribed': isSubscribed,
+      'purchased': purchased,
+      'progressPercent': progressPercent,
+      'instructor': instructor,
+      'rating': rating,
+      'duration': duration,
+      'imageUrl': imageUrl,
+    };
   }
 }
 

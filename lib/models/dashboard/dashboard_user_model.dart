@@ -3,16 +3,18 @@
 // Data comes from GET /api/users/{userId}/dashboard endpoint
 
 import 'package:flutter/material.dart';
-import '../../screens/courses/data/models/course.dart';
+
+import '../course_model.dart';
+
 
 @immutable
 class DashboardUserModel {
   final String userId;
   final String greeting;
   final DashboardSummary summary;
-  final List<Course> enrolledCourses;
+  final List<CourseModel> enrolledCourses;
   final List<RecentActivity> recentActivity;
-  final List<Course> recommended;
+  final List<CourseModel> recommended;
 
   const DashboardUserModel({
     required this.userId,
@@ -28,10 +30,10 @@ class DashboardUserModel {
     
     try {
       // Parse enrolled courses
-      List<Course> enrolled = [];
+      List<CourseModel> enrolled = [];
       if (json['enrolledCourses'] != null && json['enrolledCourses'] is List) {
         enrolled = (json['enrolledCourses'] as List)
-            .map((courseJson) => Course.fromJson(courseJson))
+            .map((courseJson) => CourseModel.fromJson(courseJson))
             .toList();
         print('   ├─ Found ${enrolled.length} enrolled courses');
       }
@@ -46,10 +48,10 @@ class DashboardUserModel {
       }
 
       // Parse recommended courses
-      List<Course> recommendedList = [];
+      List<CourseModel> recommendedList = [];
       if (json['recommended'] != null && json['recommended'] is List) {
         recommendedList = (json['recommended'] as List)
-            .map((courseJson) => Course.fromJson(courseJson))
+            .map((courseJson) => CourseModel.fromJson(courseJson))
             .toList();
         print('   ├─ Found ${recommendedList.length} recommended courses');
       }

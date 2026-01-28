@@ -1,14 +1,18 @@
-import 'dart:convert';
-import 'package:http/http.dart' as http;
+
 import '../models/assessment/assessment_model.dart';
 import '../models/assessment/question_model.dart';
-import '../providers/user_provider.dart';
-import '/config/environment_config.dart';
+import '../services/http_service.dart';
+import '../config/environment_config.dart';
 
 class AssessmentService {
-  final String baseUrl = EnvironmentConfig.baseUrl;
+  final HttpService _httpService;
+  final String baseUrl;
 
-// In assessment_service.dart, update the getModuleAssessments method:
+  AssessmentService({HttpService? httpService})
+      : _httpService = httpService ?? HttpService(),
+        baseUrl = EnvironmentConfig.baseUrl;
+
+  // Get module assessments
   Future<List<Assessment>> getModuleAssessments({
     required String courseId,
     required String moduleId,
@@ -20,22 +24,17 @@ class AssessmentService {
         return [];
       }
 
-      // CORRECT ENDPOINT: /api/modules/{moduleId}/assessments
-      final uri = Uri.parse('$baseUrl/api/modules/$moduleIdLong/assessments');
-
-      print('📡 Calling module assessments: $uri');
-
-      final response = await http.get(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-        },
+      final response = await _httpService.get<List<dynamic>>(
+        '/api/modules/$moduleIdLong/assessments',
+            (data) => data as List<dynamic>,
       );
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+      print('📡 Module assessments response status: ${response.statusCode}');
 
-        // The endpoint returns List<Assessment> directly
+      if (response.isSuccess && response.data != null) {
+        final data = response.data!;
+        print('✅ Successfully fetched ${data.length} assessments');
+
         if (data is List) {
           return data.map((a) => Assessment.fromJson(a)).toList();
         } else {
@@ -43,7 +42,7 @@ class AssessmentService {
           return [];
         }
       } else {
-        print('Failed to get module assessments: ${response.statusCode} - ${response.body}');
+        print('Failed to get module assessments: ${response.statusCode ?? "Unknown"} - ${response.errorMessage}');
         return [];
       }
     } catch (e) {
@@ -51,8 +50,6 @@ class AssessmentService {
       return [];
     }
   }
-
-
 
   Future<Map<String, dynamic>> submitAssessment({
     required int userId,
@@ -65,154 +62,175 @@ class AssessmentService {
       print('   assessmentId: $assessmentId');
       print('   answers: $answers');
 
-      // Convert to simple Map<String, String>
-      final Map<String, String> jsonBody = {};
+      // ✅ FIXED: Add userId and assessmentId as query parameters
+      String endpoint = '/api/course/assessment/submit?userId=$userId&assessmentId=$assessmentId';
+
+      // Convert Map<int, String> to Map<String, String> for JSON serialization
+      final Map<String, String> stringKeyAnswers = {};
       answers.forEach((key, value) {
-        jsonBody[key.toString()] = value;
+        stringKeyAnswers[key.toString()] = value;
       });
 
-      print('   JSON Body to send: $jsonBody');
+      print('   🔐 Using HttpService for authenticated request...');
+      print('   🌐 Endpoint: $endpoint');
+      print('   📦 Request body: $stringKeyAnswers');
 
-      final uri = Uri.parse('$baseUrl/api/course/assessment/submit')
-          .replace(queryParameters: {
-        'userId': userId.toString(),
-        'assessmentId': assessmentId.toString(),
-      });
-
-      print('   URL: ${uri.toString()}');
-
-      final response = await http.post(
-        uri,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(jsonBody),
+      final response = await _httpService.post<Map<String, dynamic>>(
+        endpoint,
+            (data) => data as Map<String, dynamic>,
+        body: stringKeyAnswers,
       );
 
-      print('📥 Response status: ${response.statusCode}');
-      print('📥 Response body: ${response.body}');
+      print('   📨 Response status: ${response.statusCode}');
+      print('   📨 Response data: ${response.data}');
+      print('   📨 Response message: ${response.errorMessage}');
 
-      if (response.statusCode == 200) {
-        return jsonDecode(response.body);
+      if (response.isSuccess && response.data != null) {
+        print('   ✅ Assessment submitted successfully!');
+        return response.data!;
       } else {
-        print('❌ Server error: ${response.statusCode} - ${response.body}');
-        throw Exception('Server error: ${response.statusCode}');
+        print('   ❌ Server error: ${response.statusCode ?? "Unknown"} - ${response.errorMessage}');
+        if (response.statusCode == 400) {
+          print('   🔍 BAD REQUEST: Check if parameters are correctly formatted');
+        }
+        throw Exception('Server error: ${response.errorMessage}');
       }
     } catch (e) {
-      print('❌ Exception: $e');
+      print('   ❌ Exception: $e');
       rethrow;
     }
   }
 
+  // Get assessment status
   Future<Map<String, dynamic>> getAssessmentStatus({
     required int userId,
     required int assessmentId,
   }) async {
     try {
-      final uri = Uri.parse('$baseUrl/api/course/assessment/status')
-          .replace(queryParameters: {
-        'userId': userId.toString(),
-        'assessmentId': assessmentId.toString(),
-      });
+      // ✅ FIXED: Build endpoint with query parameters
+      String endpoint = '/api/course/assessment/status';
+      endpoint += '?userId=$userId&assessmentId=$assessmentId';
 
-      final response = await http.get(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-        },
+      print('   🔐 Using HttpService for authenticated request...');
+      print('   🌐 Endpoint: $endpoint');
+
+      final response = await _httpService.get<Map<String, dynamic>>(
+        endpoint,
+            (data) => data as Map<String, dynamic>,
       );
 
-      if (response.statusCode == 200) {
-        return jsonDecode(response.body);
+      print('   📨 Response status: ${response.statusCode}');
+
+      if (response.isSuccess && response.data != null) {
+        return response.data!;
       } else {
-        throw Exception('Failed to get assessment status: ${response.statusCode}');
+        print('   ❌ Failed to get assessment status: ${response.statusCode}');
+        throw Exception('Failed to get assessment status: ${response.errorMessage}');
       }
     } catch (e) {
-      throw Exception('Failed to get assessment status: $e');
+      print('   ❌ Error getting assessment status: $e');
+      rethrow;
     }
   }
 
+  // Get assessment with questions
   Future<List<Question>> getAssessmentWithQuestions({
     required int userId,
     required int assessmentId,
   }) async {
     try {
-      final uri = Uri.parse('$baseUrl/api/assessments/$assessmentId/questions')
-          .replace(queryParameters: {
-        'userId': userId.toString(),
-        'assessmentId': assessmentId.toString(),
-      });
+      // ✅ FIXED: Build endpoint with query parameters
+      String endpoint = '/api/assessments/$assessmentId/questions';
+      endpoint += '?userId=$userId';
 
-      final response = await http.get(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-        },
+      print('   🔐 Using HttpService for authenticated request...');
+      print('   🌐 Endpoint: $endpoint');
+
+      final response = await _httpService.get<Map<String, dynamic>>(
+        endpoint,
+            (data) => data as Map<String, dynamic>,
       );
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final List<dynamic> questionsData = data['questions'] ?? [];
+      print('   📨 Response status: ${response.statusCode}');
 
+      if (response.isSuccess && response.data != null) {
+        final data = response.data!;
+        final List<dynamic> questionsData = data['questions'] ?? data['data'] ?? [];
         return questionsData.map((q) => Question.fromJson(q)).toList();
       } else {
-        throw Exception('Failed to get assessment questions: ${response.statusCode}');
+        print('   ❌ Failed to get assessment questions: ${response.statusCode}');
+        print('   📄 Error response: ${response.errorMessage}');
+        throw Exception('Failed to get assessment questions: ${response.errorMessage}');
       }
     } catch (e) {
-      throw Exception('Failed to get assessment questions: $e');
+      print('   ❌ Error getting assessment questions: $e');
+      rethrow;
     }
   }
 
+  // Get assessment details
   Future<Assessment?> getAssessmentDetails(int assessmentId) async {
     try {
-      final uri = Uri.parse('$baseUrl/api/course/assessment/$assessmentId');
+      // ✅ FIXED: Build endpoint with query parameters
+      String endpoint = '/api/course/assessment/$assessmentId';
 
-      final response = await http.get(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-        },
+      print('   🔐 Using HttpService for authenticated request...');
+      print('   🌐 Endpoint: $endpoint');
+
+      final response = await _httpService.get<Map<String, dynamic>>(
+        endpoint,
+            (data) => data as Map<String, dynamic>,
       );
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+      print('   📨 Response status: ${response.statusCode}');
+
+      if (response.isSuccess && response.data != null) {
+        final data = response.data!;
         return Assessment.fromJson(data);
       } else {
+        print('   ❌ Failed to get assessment details: ${response.statusCode}');
         return null;
       }
     } catch (e) {
+      print('   ❌ Error getting assessment details: $e');
       return null;
     }
   }
 
+  // Check if can attempt assessment
   Future<bool> canAttemptAssessment({
     required int userId,
     required int assessmentId,
   }) async {
     try {
-      final uri = Uri.parse('$baseUrl/api/course/assessment/can-attempt')
-          .replace(queryParameters: {
-        'userId': userId.toString(),
-        'assessmentId': assessmentId.toString(),
-      });
+      // ✅ FIXED: Build endpoint with query parameters
+      String endpoint = '/api/course/assessment/can-attempt';
+      endpoint += '?userId=$userId&assessmentId=$assessmentId';
 
-      final response = await http.get(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-        },
+      print('   🔐 Using HttpService for authenticated request...');
+      print('   🌐 Endpoint: $endpoint');
+
+      final response = await _httpService.get<Map<String, dynamic>>(
+        endpoint,
+            (data) => data as Map<String, dynamic>,
       );
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+      print('   📨 Response status: ${response.statusCode}');
+
+      if (response.isSuccess && response.data != null) {
+        final data = response.data!;
         return data['canAttempt'] ?? false;
       } else {
+        print('   ❌ Failed to check if can attempt: ${response.statusCode}');
         return false;
       }
     } catch (e) {
+      print('   ❌ Error checking if can attempt assessment: $e');
       return false;
     }
   }
 
-  // Add this method to check if assessment exists
+  // Check if assessment exists
   Future<bool> checkAssessmentExists(int assessmentId) async {
     try {
       final assessment = await getAssessmentDetails(assessmentId);
@@ -222,32 +240,65 @@ class AssessmentService {
     }
   }
 
-  // Add this method to get assessment progress
+  // Get assessment progress
   Future<Map<String, dynamic>> getAssessmentProgress({
     required int userId,
     required int assessmentId,
   }) async {
     try {
-      final uri = Uri.parse('$baseUrl/api/course/assessment/progress')
-          .replace(queryParameters: {
-        'userId': userId.toString(),
-        'assessmentId': assessmentId.toString(),
-      });
+      // ✅ FIXED: Build endpoint with query parameters
+      String endpoint = '/api/course/assessment/progress';
+      endpoint += '?userId=$userId&assessmentId=$assessmentId';
 
-      final response = await http.get(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-        },
+      print('   🔐 Using HttpService for authenticated request...');
+      print('   🌐 Endpoint: $endpoint');
+
+      final response = await _httpService.get<Map<String, dynamic>>(
+        endpoint,
+            (data) => data as Map<String, dynamic>,
       );
 
-      if (response.statusCode == 200) {
-        return jsonDecode(response.body);
+      print('   📨 Response status: ${response.statusCode}');
+
+      if (response.isSuccess && response.data != null) {
+        return response.data!;
       } else {
-        throw Exception('Failed to get assessment progress: ${response.statusCode}');
+        print('   ❌ Failed to get assessment progress: ${response.statusCode}');
+        print('   📄 Error response: ${response.errorMessage}');
+        throw Exception('Failed to get assessment progress: ${response.errorMessage}');
       }
     } catch (e) {
-      throw Exception('Failed to get assessment progress: $e');
+      print('   ❌ Error getting assessment progress: $e');
+      rethrow;
+    }
+  }
+
+  // New method: Get all assessments for a course
+  Future<List<Assessment>> getCourseAssessments(int courseId) async {
+    try {
+      // ✅ FIXED: Build endpoint with query parameters
+      String endpoint = '/api/courses/$courseId/assessments';
+
+      print('   🔐 Using HttpService for authenticated request...');
+      print('   🌐 Endpoint: $endpoint');
+
+      final response = await _httpService.get<List<dynamic>>(
+        endpoint,
+            (data) => data as List<dynamic>,
+      );
+
+      print('   📨 Response status: ${response.statusCode}');
+
+      if (response.isSuccess && response.data != null) {
+        final data = response.data!;
+        if (data is List) {
+          return data.map((a) => Assessment.fromJson(a)).toList();
+        }
+      }
+      return [];
+    } catch (e) {
+      print('   ❌ Error getting course assessments: $e');
+      return [];
     }
   }
 }

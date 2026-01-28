@@ -47,32 +47,85 @@ class UserModel {
     return value.toString();
   }
 
+  // Helper to parse isNewUser safely
+  static bool _parseIsNewUserSafely(dynamic value) {
+    if (value == null) return true; // Default to true for safety
+
+    print('🔍 DEBUG: Parsing isNewUser - raw value: $value (type: ${value.runtimeType})');
+
+    if (value is bool) {
+      return value;
+    }
+
+    if (value is int) {
+      return value == 1;
+    }
+
+    if (value is String) {
+      if (value == '1' || value.toLowerCase() == 'true') return true;
+      if (value == '0' || value.toLowerCase() == 'false') return false;
+    }
+
+    // Default
+    return true;
+  }
+
   factory UserModel.fromJson(Map<String, dynamic> json) {
-    return UserModel(
-      id: _parseIdSafely(json['id']),
-      email: json['email']?.toString() ?? '',
-      firstName: json['firstName']?.toString() ?? '',
-      lastName: json['lastName']?.toString() ?? '',
-      phoneNumber: json['phoneNumber']?.toString(),
-      profileImage: json['profileImage']?.toString(),
-      dateOfBirth: json['dateOfBirth'] != null
-          ? DateTime.tryParse(json['dateOfBirth'].toString())
-          : null,
-      address: json['address']?.toString(),
-      role: json['role']?.toString() ?? 'USER',
-      isActive: json['isActive'] ?? true,
-      isEmailVerified: json['isEmailVerified'] ?? false,
-      createdAt: json['createdAt'] != null
-          ? DateTime.parse(json['createdAt'].toString())
-          : DateTime.now(),
-      updatedAt: json['updatedAt'] != null
-          ? DateTime.parse(json['updatedAt'].toString())
-          : DateTime.now(),
-      preferences: json['preferences'] != null
-          ? UserPreferences.fromJson(json['preferences'])
-          : null,
-      isNewUser: json['isNewUser'] == 1 || json['isNewUser'] == true,
-    );
+    print('🔍 DEBUG: UserModel.fromJson called');
+    print('   ├─ JSON keys: ${json.keys.toList()}');
+    print('   ├─ id: ${json['id']} (type: ${json['id']?.runtimeType})');
+    print('   ├─ email: ${json['email']}');
+    print('   ├─ firstName: ${json['firstName']}');
+    print('   ├─ lastName: ${json['lastName']}');
+    print('   ├─ phoneNumber: ${json['phoneNumber']}');
+    print('   ├─ isNewUser: ${json['isNewUser']} (type: ${json['isNewUser']?.runtimeType})');
+
+    try {
+      return UserModel(
+        id: _parseIdSafely(json['id']),
+        email: json['email']?.toString() ?? '',
+        firstName: json['firstName']?.toString() ?? '',
+        lastName: json['lastName']?.toString() ?? '',
+        phoneNumber: json['phoneNumber']?.toString(),
+        profileImage: json['profileImage']?.toString(),
+        dateOfBirth: json['dateOfBirth'] != null
+            ? DateTime.tryParse(json['dateOfBirth'].toString())
+            : null,
+        address: json['address']?.toString(),
+        role: json['role']?.toString() ?? 'USER',
+        isActive: json['isActive'] is bool? ? (json['isActive'] ?? true) :
+        (json['isActive'] == 1 || json['isActive'] == true),
+        isEmailVerified: json['isEmailVerified'] is bool? ? (json['isEmailVerified'] ?? false) :
+        (json['isEmailVerified'] == 1 || json['isEmailVerified'] == true),
+        createdAt: json['createdAt'] != null
+            ? DateTime.tryParse(json['createdAt'].toString()) ?? DateTime.now()
+            : DateTime.now(),
+        updatedAt: json['updatedAt'] != null
+            ? DateTime.tryParse(json['updatedAt'].toString()) ?? DateTime.now()
+            : DateTime.now(),
+        preferences: json['preferences'] != null
+            ? UserPreferences.fromJson(json['preferences'])
+            : null,
+        isNewUser: _parseIsNewUserSafely(json['isNewUser']),
+      );
+    } catch (e) {
+      print('❌ ERROR in UserModel.fromJson: $e');
+      print('❌ Stack trace: ${e.toString()}');
+
+      // Return a default user object to prevent crash
+      return UserModel(
+        id: _parseIdSafely(json['id']),
+        email: json['email']?.toString() ?? 'error@example.com',
+        firstName: json['firstName']?.toString() ?? 'Error',
+        lastName: json['lastName']?.toString() ?? 'User',
+        role: 'USER',
+        isActive: true,
+        isEmailVerified: false,
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+        isNewUser: true,
+      );
+    }
   }
 
   Map<String, dynamic> toJson() {

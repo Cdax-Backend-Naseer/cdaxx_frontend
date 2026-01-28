@@ -122,7 +122,7 @@ class BeforeSignUpScreen extends StatelessWidget {
                   const SizedBox(height: 12),
 
                   FutureBuilder(
-                    future: CourseProviders.getCourseRepository().getCourses(),
+                    future: CourseProviders.getCourseRepository().getPublicCourses(),
                     builder: (context, snapshot) {
                       if (snapshot.connectionState != ConnectionState.done) {
                         return const Center(
@@ -179,7 +179,7 @@ class BeforeSignUpScreen extends StatelessWidget {
                                 ClipRRect(
                                   borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
                                   child: Image.network(
-                                    c.thumbnailUrl,
+                                    c.thumbnailUrl??"",
                                     height: screenHeight * 0.12, // Responsive height
                                     width: double.infinity,
                                     fit: BoxFit.cover,

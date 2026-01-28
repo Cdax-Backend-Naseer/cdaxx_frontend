@@ -7,6 +7,8 @@ import 'package:provider/provider.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/social_login_button.dart';
 import '../../../providers/user_provider.dart';
+import '../../../providers/favorite_provider.dart';
+import '../../../providers/cart_provider.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -45,6 +47,8 @@ class _SignupScreenState extends State<SignupScreen> {
     setState(() => _loading = true);
 
     final userProvider = context.read<UserProvider>();
+    final favoriteProvider = context.read<FavoriteProvider>();
+    final cartProvider = context.read<CartProvider>();
 
     final success = await userProvider.register(
       firstName: _firstName.text.trim(),
@@ -60,13 +64,28 @@ class _SignupScreenState extends State<SignupScreen> {
     setState(() => _loading = false);
 
     if (success) {
+      // ✅ Get the newly registered AND LOGGED IN user
+      final user = userProvider.currentUser;
+      if (user != null) {
+        final userId = user.id?.toString();
+
+        if (userId != null) {
+          // Initialize FavoriteProvider and CartProvider
+          favoriteProvider.initialize(userId);
+          cartProvider.initialize(userId);
+          print('✅ Initialized favorites & cart for new user: $userId');
+        }
+      }
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Account created successfully!'),
           backgroundColor: Colors.green,
         ),
       );
-      context.go('/login');
+
+      // Navigate to dashboard (user is now auto-logged in)
+      context.go('/dashboard');
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

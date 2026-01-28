@@ -3,10 +3,8 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
 import '../../../providers/dashboard_provider.dart';
-import '/config/environment_config.dart';
+import '../../../services/http_service.dart';
 
 /// Gradient background constants from login screen
 const LinearGradient _kDashboardBgGradient = LinearGradient(
@@ -150,21 +148,23 @@ class _ModulesScreenState extends State<ModulesScreen> {
 
     try {
       final userId = dashboardProvider.currentUserId!;
-      final String baseUrl = EnvironmentConfig.baseUrl;
 
-      final response = await http.get(
-        Uri.parse('$baseUrl/api/modules/course/$courseId?userId=$userId'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
+      print('📡 Loading modules for course: $courseTitle (ID: $courseId)');
+      print('👤 User ID: $userId');
+
+      // ✅ FIXED: Use HttpService instead of raw http.get()
+      final httpService = HttpService();
+
+      final response = await httpService.get<Map<String, dynamic>>(
+        '/api/modules/course/$courseId?userId=$userId',
+            (data) => data as Map<String, dynamic>,
       );
 
-      print('📡 Modules API Response for course $courseId: ${response.statusCode}');
+      print('📡 Modules API Response status: ${response.statusCode}');
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        print('📦 Modules Data: $data');
+      if (response.isSuccess && response.data != null) {
+        final data = response.data!;
+        print('📦 Modules Data received successfully');
 
         setState(() {
           _modules = data['data'] ?? data['modules'] ?? [];
@@ -173,9 +173,9 @@ class _ModulesScreenState extends State<ModulesScreen> {
 
         print('✅ Loaded ${_modules.length} modules for course: $courseTitle');
       } else {
-        print('❌ Failed to load modules: ${response.statusCode} ${response.body}');
+        print('❌ Failed to load modules: ${response.errorMessage}');
         setState(() {
-          _error = 'Failed to load modules (${response.statusCode})';
+          _error = 'Failed to load modules: ${response.errorMessage}';
           _isLoadingModules = false;
         });
       }

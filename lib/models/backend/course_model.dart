@@ -52,6 +52,9 @@ class CourseModel {
   final int totalModules;
   final int unlockedModules;
   final bool isCompleted;
+  final String? certificateTemplateId;
+  final double? requiresMinimumGrade;
+  final bool autoGenerateCertificate;
 
   CourseModel({
     required this.id,
@@ -93,6 +96,9 @@ class CourseModel {
     this.totalModules = 0,
     this.unlockedModules = 0,
     this.isCompleted = false,
+    this.certificateTemplateId,
+    this.requiresMinimumGrade = 70.0,
+    this.autoGenerateCertificate = true,
   });
 
   double get effectivePrice => discountPrice ?? price;
@@ -113,7 +119,7 @@ class CourseModel {
     return '${minutes}m';
   }
 
-  int get totalLessons => modules.fold(0, (sum, module) => sum + (module.videos.length ?? 0));
+  int get totalLessons => modules.fold(0, (sum, module) => sum + (module.videos.length));
 
   // NEW: Helper method to check if course has specific tag
   bool hasTag(String tag) {
@@ -286,6 +292,9 @@ class CourseModel {
       totalModules: totalModules,
       unlockedModules: unlockedModules,
       isCompleted: isCompleted,
+      certificateTemplateId: json['certificate_template_id'],
+      requiresMinimumGrade: json['requires_minimum_grade']?.toDouble(),
+      autoGenerateCertificate: json['auto_generate_certificate'] ?? true,
     );
   }
 

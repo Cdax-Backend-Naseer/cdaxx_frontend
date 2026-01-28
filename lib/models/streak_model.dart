@@ -1,4 +1,4 @@
-// lib/models/streak_model.dart
+// lib/models/streak_model.dart - FIXED VERSION
 class StreakModel {
   final String courseId;
   final String courseTitle;
@@ -19,16 +19,19 @@ class StreakModel {
   });
 
   factory StreakModel.fromJson(Map<String, dynamic> json) {
+    print('🔍 PARSING STREAK JSON: ${json.keys}');
+
     return StreakModel(
-      courseId: json['courseId']?.toString() ?? '',
-      courseTitle: json['courseTitle'] ?? '',
-      currentStreakDays: json['currentStreakDays'] ?? 0,
-      longestStreakDays: json['longestStreakDays'] ?? 0,
-      overallProgress: (json['overallProgress'] ?? 0).toDouble(),
-      lastActiveDate: json['lastActiveDate'] != null
-          ? DateTime.parse(json['lastActiveDate'])
+      // ✅ Handle snake_case (what API actually returns)
+      courseId: (json['course_id'] ?? '').toString(),
+      courseTitle: json['course_title'] ?? '',
+      currentStreakDays: json['current_streak_days'] ?? 0,
+      longestStreakDays: json['longest_streak_days'] ?? 0,
+      overallProgress: (json['overall_progress'] ?? 0).toDouble(),
+      lastActiveDate: json['last_active_date'] != null
+          ? DateTime.parse(json['last_active_date'])
           : null,
-      last30Days: (json['last30Days'] as List? ?? [])
+      last30Days: ((json['last30_days'] ?? json['last30Days']) as List? ?? [])
           .map((day) => StreakDayModel.fromJson(day))
           .toList(),
     );
@@ -55,11 +58,12 @@ class StreakDayModel {
   factory StreakDayModel.fromJson(Map<String, dynamic> json) {
     return StreakDayModel(
       date: DateTime.parse(json['date']),
-      watchedSeconds: json['watchedSeconds'] ?? 0,
-      totalAvailableSeconds: json['totalAvailableSeconds'] ?? 0,
-      progressPercentage: (json['progressPercentage'] ?? 0).toDouble(),
-      isActiveDay: json['isActiveDay'] ?? false,
-      colorCode: json['colorCode'] ?? '#E5E7EB',
+      // ✅ Handle snake_case
+      watchedSeconds: json['watched_seconds'] ?? json['watchedSeconds'] ?? 0,
+      totalAvailableSeconds: json['total_available_seconds'] ?? json['totalAvailableSeconds'] ?? 0,
+      progressPercentage: (json['progress_percentage'] ?? json['progressPercentage'] ?? 0).toDouble(),
+      isActiveDay: json['is_active_day'] ?? json['isActiveDay'] ?? false,
+      colorCode: json['color_code'] ?? json['colorCode'] ?? '#E5E7EB',
     );
   }
 }

@@ -3,12 +3,14 @@
 // Data comes from GET /api/users/{userId}/dashboard endpoint when hasEnrolledCourses = false
 
 import 'package:flutter/foundation.dart';
-import '../../screens/courses/data/models/course.dart';
+
+import '../course_model.dart';
+
 
 @immutable
 class NewUserDashboardModel {
   final HeroBanner hero;
-  final List<Course> featuredCourses;
+  final List<CourseModel> featuredCourses;
   final List<StarterPath> starterPaths;
   final List<String> popularCategories;
   final PublicStats stats;
@@ -26,10 +28,10 @@ class NewUserDashboardModel {
     
     try {
       // Parse featured courses
-      List<Course> courses = [];
+      List<CourseModel> courses = [];
       if (json['featuredCourses'] != null && json['featuredCourses'] is List) {
         courses = (json['featuredCourses'] as List)
-            .map((courseJson) => Course.fromJson(courseJson))
+            .map((courseJson) => CourseModel.fromJson(courseJson))
             .toList();
         print('   ├─ Found ${courses.length} featured courses');
       }

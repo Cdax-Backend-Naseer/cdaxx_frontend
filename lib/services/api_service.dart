@@ -11,23 +11,51 @@ class ApiService extends BaseApiService {
   static final ApiService _instance = ApiService._internal();
   factory ApiService() => _instance;
   ApiService._internal();
-  
-  // User operations
+
+  // User operations - FIXED VERSION matching your ApiResponse class
   Future<ApiResponse<UserModel>> getCurrentUser() async {
-    return await get<UserModel>(
-      ApiConstants.userProfile,
-      fromJson: (json) => UserModel.fromJson(json),
+    final response = await get<Map<String, dynamic>>(
+      '/auth/profile/me',  // ✅ Correct endpoint
+      fromJson: (json) => json as Map<String, dynamic>,
+    );
+
+    if (response.isSuccess && response.data != null) {
+      // Extract user from nested response
+      final userJson = response.data!['user'];
+      if (userJson != null) {
+        return ApiResponse<UserModel>.success(
+          UserModel.fromJson(userJson),
+          message: response.message,
+        );
+      }
+    }
+
+    return ApiResponse<UserModel>.error(
+      response.error ?? 'Failed to load profile',
     );
   }
-  
+
   Future<ApiResponse<UserModel>> updateProfile(Map<String, dynamic> data) async {
-    return await put<UserModel>(
-      ApiConstants.updateProfile,
+    return await put<Map<String, dynamic>>(
+      '/auth/profile/update',
       body: data,
-      fromJson: (json) => UserModel.fromJson(json),
-    );
+      fromJson: (json) => json as Map<String, dynamic>,
+    ).then((response) {
+      if (response.isSuccess && response.data != null) {
+        final userJson = response.data!['user'];
+        if (userJson != null) {
+          return ApiResponse<UserModel>.success(
+            UserModel.fromJson(userJson),
+            message: response.message,
+          );
+        }
+      }
+      return ApiResponse<UserModel>.error(
+        response.error ?? 'Failed to update profile',
+      );
+    });
   }
-  
+
   // Course operations
   Future<ApiResponse<List<CourseModel>>> getCourses({
     int page = 0,
@@ -41,7 +69,7 @@ class ApiService extends BaseApiService {
     };
     if (search != null) queryParams['search'] = search;
     if (category != null) queryParams['category'] = category;
-    
+
     return await get<List<CourseModel>>(
       ApiConstants.courses,
       queryParameters: queryParams,
@@ -50,19 +78,19 @@ class ApiService extends BaseApiService {
           .toList(),
     );
   }
-  
+
   Future<ApiResponse<CourseModel>> getCourseById(String courseId) async {
     final endpoint = ApiConstants.replacePathParams(
       ApiConstants.courseDetails,
       {'id': courseId},
     );
-    
+
     return await get<CourseModel>(
       endpoint,
       fromJson: (json) => CourseModel.fromJson(json),
     );
   }
-  
+
   // Performance operations
   Future<ApiResponse<List<PerformanceModel>>> getPerformanceData({
     String? courseId,
@@ -71,7 +99,7 @@ class ApiService extends BaseApiService {
     final queryParams = <String, String>{};
     if (courseId != null) queryParams['courseId'] = courseId;
     if (userId != null) queryParams['userId'] = userId;
-    
+
     return await get<List<PerformanceModel>>(
       ApiConstants.performance,
       queryParameters: queryParams,
@@ -80,30 +108,33 @@ class ApiService extends BaseApiService {
           .toList(),
     );
   }
+
+  // Streak operations - FIXED
   Future<ApiResponse<Map<String, dynamic>>> getCourseStreak(String courseId, String userId) async {
     return await get<Map<String, dynamic>>(
-      '/api/streak/course/$courseId?userId=$userId',
+      '/streak/course/$courseId?userId=$userId',
       fromJson: (json) => json as Map<String, dynamic>,
     );
   }
 
   Future<ApiResponse<Map<String, dynamic>>> getStreakOverview(String userId) async {
     return await get<Map<String, dynamic>>(
-      '/api/streak/overview?userId=$userId',
+      '/streak/overview?userId=$userId',
       fromJson: (json) => json as Map<String, dynamic>,
     );
   }
 
+  // ✅ FIXED: Use correct endpoint
   Future<ApiResponse<Map<String, dynamic>>> getDayDetails(String userId, String courseId, String date) async {
     return await get<Map<String, dynamic>>(
-      '/api/streak/day-details?userId=$userId&courseId=$courseId&date=$date',
+      '/streak/day/$courseId?userId=$userId&date=$date',  // ✅ Fixed pattern
       fromJson: (json) => json as Map<String, dynamic>,
     );
   }
 
   Future<ApiResponse<Map<String, dynamic>>> updateVideoProgress(Map<String, dynamic> data) async {
     return await post<Map<String, dynamic>>(
-      '/api/video/progress/update',
+      '/video/progress/update',
       body: data,
       fromJson: (json) => json as Map<String, dynamic>,
     );

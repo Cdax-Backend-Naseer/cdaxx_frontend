@@ -13,6 +13,7 @@ class Course {
   final double progressPercent; // 0..1
   final bool isSubscribed; // Whether course is purchased
   final List<Module> modules;
+  final double price;
   final String? instructor; // Optional instructor name
   final double? rating; // Optional course rating
   final int? studentsCount; // Optional student count
@@ -28,6 +29,7 @@ class Course {
     required this.progressPercent,
     required this.isSubscribed,
     required this.modules,
+    required this.price,
     this.instructor,
     this.rating,
     this.studentsCount,
@@ -59,6 +61,7 @@ class Course {
         title: json['title']?.toString() ?? 'Untitled Course',
         description: json['description']?.toString() ?? '',
         thumbnailUrl: json['thumbnailUrl']?.toString() ?? '',
+        price: (json['price'] ?? 0).toDouble(),
         progressPercent: _parseDoubleSafely(json['progressPercent'] ?? json['progress'], 0.0),
         isSubscribed: _parseBoolSafely(json['isSubscribed'] ?? json['setPurchased'], false),
         modules: modulesList,
@@ -102,6 +105,7 @@ class Course {
     required double progressPercent,
     required bool isSubscribed,
     required List<Module> modules,
+    double price = 0.0,
   }) {
     print('🔄 Creating legacy Course: $title with ${modules.length} modules');
     return Course(
@@ -112,6 +116,7 @@ class Course {
       progressPercent: progressPercent,
       isSubscribed: isSubscribed,
       modules: modules,
+      price: price,
     );
   }
 

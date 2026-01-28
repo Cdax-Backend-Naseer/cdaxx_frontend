@@ -25,11 +25,12 @@ class ModulePlayerScreen extends StatefulWidget {
 class _ModulePlayerScreenState extends State<ModulePlayerScreen> {
   List<Assessment> _assessments = [];
   bool _assessmentsLoading = true;
-  final AssessmentService _assessmentService = AssessmentService();
+  late AssessmentService _assessmentService;
 
   @override
   void initState() {
     super.initState();
+    _assessmentService = AssessmentService();
     _loadAssessments();
   }
 
@@ -57,8 +58,14 @@ class _ModulePlayerScreenState extends State<ModulePlayerScreen> {
   }
 
   List<Assessment> _getAssessmentsWithModuleLockState(Module module) {
-    final hasLockedVideos = module.videos.any((v) => v.isLocked);
-    final assessmentLocked = module.isLocked || hasLockedVideos;
+    // Check if ALL videos in module are completed
+    final allVideosCompleted = module.videos.every((v) => v.isCompleted);
+
+    // Assessment should be locked if:
+    // 1. Module is locked, OR
+    // 2. NOT all videos are completed
+    final assessmentLocked = module.isLocked || !allVideosCompleted;
+
 
     return _assessments.map((assessment) {
       if (assessment.isLocked != assessmentLocked) {

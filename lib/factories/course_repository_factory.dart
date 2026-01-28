@@ -7,7 +7,9 @@
   import '../screens/courses/data/remote_course_repository.dart';
   import '../config/backend_config.dart';
   import '../providers/user_provider.dart'; // Add this import
-  import 'package:provider/provider.dart'; // Add this import
+  import 'package:provider/provider.dart';
+
+import '../services/http_service.dart'; // Add this import
 
   /// Factory class to provide the appropriate CourseRepository implementation
   /// Automatically switches between remote backend and mock data based on configuration
@@ -68,8 +70,9 @@
 
       _instance = RemoteCourseRepository(
         baseUrl: BackendConfig.baseUrl,
-        userId: resolvedUserId, // Pass user ID here
+        userId: resolvedUserId,
         timeout: BackendConfig.requestTimeout,
+        httpService: HttpService(), // Add this line
       );
 
       return _instance!;

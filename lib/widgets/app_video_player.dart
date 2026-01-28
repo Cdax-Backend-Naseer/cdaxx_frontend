@@ -1,16 +1,14 @@
-import 'dart:convert';
-
+import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:http/http.dart' as http;
-import 'dart:async';
+import '../services/http_service.dart';
 import '/config/environment_config.dart';
 
 class AppVideoPlayer extends StatefulWidget {
-
   const AppVideoPlayer({
     super.key,
     required this.videoUrl,
@@ -18,8 +16,11 @@ class AppVideoPlayer extends StatefulWidget {
     this.courseId,
     this.moduleId,
     this.userId,
-    this.videoDuration, // Add video duration parameter
+    this.videoDuration,
     this.onVideoCompleted,
+    this.minimumWatchPercentage = 0.70,
+    this.maximumSkipPercentage = 0.20,
+    this.minimumValidSegmentDuration = 5,
   });
 
   final String videoUrl;
@@ -27,8 +28,11 @@ class AppVideoPlayer extends StatefulWidget {
   final String? courseId;
   final String? moduleId;
   final String? userId;
-  final Duration? videoDuration; // Expected video duration
+  final Duration? videoDuration;
   final VoidCallback? onVideoCompleted;
+  final double minimumWatchPercentage;
+  final double maximumSkipPercentage;
+  final int minimumValidSegmentDuration;
 
   @override
   State<AppVideoPlayer> createState() => _AppVideoPlayerState();
@@ -43,28 +47,63 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
   bool _isYouTubeUrl = false;
   bool _isInitialized = false;
   String? _youtubeId;
+  bool _isMarkingAsCompleted = false;
+  DateTime? _lastCompletionCheckTime;
   bool _videoMarkedAsCompleted = false;
+  final HttpService _httpService = HttpService();
 
-  // Timer tracking variables
-  Timer? _watchTimer;
-  int _forwardButtonCount = 0; // Counts +10 forward button presses
-  Duration _totalWatchedTime = Duration.zero;
-  Duration _lastPosition = Duration.zero;
-  bool _isDragging = false;
-  Duration? _actualVideoDuration; // Actual duration from video player
+  // Tracking variables
+  Duration _totalWatchTime = Duration.zero;
   DateTime? _videoStartTime;
-  List<Duration> _forwardJumps = []; // Track forward jump timestamps
+  int _consecutiveForwardJumps = 0;
+  List<Map<String, dynamic>> _playbackSegments = [];
+  Timer? _playbackTimer;
+  bool _isSegmentValid = true;
+  Map<String, Duration> _watchedSegments = {};
+  bool _suspectCheating = false;
+  double _minimumRequiredWatchPercentage = 0.70;
+  double _maximumSkipPercentage = 0.20;
+
+  // For detecting seeks
+  List<Duration> _recentPositions = [];
+  static const int _maxPositionHistory = 10;
+  static const Duration _rapidSeekThreshold = Duration(milliseconds: 500);
+  DateTime? _lastSeekDetectionTime;
+  bool _isSeeking = false;
+
+  // Position tracking
+  int _forwardButtonCount = 0;
+  Duration _lastPosition = Duration.zero;
+  Duration? _actualVideoDuration;
+  DateTime? _lastProgressUpdateTime;
+  List<Duration> _forwardJumps = [];
+
+  // Playback quality tracking
+  int _validWatchSegments = 0;
+  int _totalSegments = 0;
+
+  // Warning tracking
+  bool _warningShownForCurrentSession = false;
+  DateTime? _lastWarningTime;
+  static const int _minTimeBetweenWarnings = 10;
+
+  // Session tracking
+  DateTime? _sessionStartTime;
 
   @override
   void initState() {
     super.initState();
+    _minimumRequiredWatchPercentage = widget.minimumWatchPercentage;
+    _maximumSkipPercentage = widget.maximumSkipPercentage;
+    _sessionStartTime = DateTime.now();
     _initialize();
   }
 
   @override
   void didUpdateWidget(AppVideoPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.videoUrl != widget.videoUrl) {
+    if (oldWidget.videoUrl != widget.videoUrl ||
+        oldWidget.videoId != widget.videoId) {
       _resetTracking();
       _dispose();
       _initialize();
@@ -72,14 +111,42 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
   }
 
   void _resetTracking() {
-    _watchTimer?.cancel();
+    debugPrint('🔄 Resetting ALL tracking variables');
+
     _videoMarkedAsCompleted = false;
     _forwardButtonCount = 0;
-    _totalWatchedTime = Duration.zero;
     _lastPosition = Duration.zero;
-    _isDragging = false;
     _forwardJumps.clear();
+    _lastProgressUpdateTime = null;
+
+    // Reset enhanced tracking
+    _totalWatchTime = Duration.zero;
     _videoStartTime = null;
+    _consecutiveForwardJumps = 0;
+    _playbackSegments.clear();
+    _playbackTimer?.cancel();
+    _playbackTimer = null;
+    _isSegmentValid = true;
+    _watchedSegments.clear();
+    _suspectCheating = false;
+    _recentPositions.clear();
+    _isSeeking = false;
+    _lastSeekDetectionTime = null;
+    _validWatchSegments = 0;
+    _totalSegments = 0;
+
+    // Reset debouncing variables
+    _isMarkingAsCompleted = false;
+    _lastCompletionCheckTime = null;
+
+    // Reset warning tracking
+    _warningShownForCurrentSession = false;
+    _lastWarningTime = null;
+
+    // Reset session time
+    _sessionStartTime = DateTime.now();
+
+    debugPrint('✅ Tracking reset complete');
   }
 
   Future<void> _initialize() async {
@@ -88,14 +155,7 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
     try {
       final String? youtubeId = YoutubePlayer.convertUrlToId(widget.videoUrl);
 
-      debugPrint('🎥 Video URL: ${widget.videoUrl}');
-      debugPrint('🔍 Extracted YouTube ID: $youtubeId');
-      debugPrint('🎯 Video ID: ${widget.videoId}');
-      debugPrint('👤 User ID: ${widget.userId}');
-      debugPrint('⏱️ Expected Duration: ${widget.videoDuration}');
-
       if (youtubeId != null) {
-        // YouTube URL
         if (!kIsWeb) {
           final youtubeController = YoutubePlayerController(
             initialVideoId: youtubeId,
@@ -130,12 +190,11 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
           });
         }
       } else {
-        // Regular video URL
         final video = VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl));
         await video.initialize();
 
-        // Store actual duration
         _actualVideoDuration = video.value.duration;
+        debugPrint('🎬 Video duration: ${_actualVideoDuration?.inSeconds}s');
 
         final chewie = ChewieController(
           videoPlayerController: video,
@@ -152,9 +211,7 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
           ),
         );
 
-        video.addListener(() {
-          _handleRegularVideoState(video);
-        });
+        _startEnhancedTracking(video);
 
         if (!mounted) return;
         setState(() {
@@ -174,38 +231,170 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
     }
   }
 
-  void _handleYouTubeVideoState(YoutubePlayerController controller) {
-    if (!controller.value.isReady) return;
+  void _startEnhancedTracking(VideoPlayerController controller) {
+    debugPrint('🎯 Starting fresh tracking session');
+    _videoStartTime = DateTime.now();
+    _sessionStartTime = DateTime.now();
 
-    final currentPosition = controller.value.position;
-    final playerState = controller.value.playerState;
+    controller.addListener(() {
+      if (!controller.value.isInitialized) return;
 
-    // Track play/pause
-    if (playerState == PlayerState.playing) {
-      if (_videoStartTime == null) {
-        _videoStartTime = DateTime.now();
-        _startWatchTimer();
+      final currentPosition = controller.value.position;
+      final isPlaying = controller.value.isPlaying;
+
+      _detectSeeking(currentPosition);
+      _updateWatchedSegments(currentPosition, isPlaying);
+      _trackPlaybackSegments(currentPosition, isPlaying);
+      _checkForSuspiciousBehavior(currentPosition, isPlaying);
+      _handleRegularVideoState(controller);
+    });
+
+    _playbackTimer = Timer.periodic(Duration(seconds: 1), (timer) {
+      if (controller.value.isPlaying) {
+        _totalWatchTime += Duration(seconds: 1);
       }
-    } else if (playerState == PlayerState.paused) {
-      _watchTimer?.cancel();
+    });
+  }
+
+  void _detectSeeking(Duration currentPosition) {
+    final now = DateTime.now();
+
+    _recentPositions.add(currentPosition);
+    if (_recentPositions.length > _maxPositionHistory) {
+      _recentPositions.removeAt(0);
     }
 
-    // Track forward jumps
-    if (_lastPosition.inSeconds > 0) {
-      final jump = currentPosition - _lastPosition;
-      if (jump.inSeconds >= 10) {
-        // Detected a forward jump of 10+ seconds
-        _forwardButtonCount++;
-        _forwardJumps.add(currentPosition);
-        debugPrint('⏩ Forward jump detected: $jump (count: $_forwardButtonCount)');
+    if (_recentPositions.length >= 2) {
+      final lastPosition = _recentPositions[_recentPositions.length - 2];
+      final positionChange = (currentPosition - lastPosition).abs();
+      final timeSinceLastChange = _lastSeekDetectionTime != null
+          ? now.difference(_lastSeekDetectionTime!)
+          : Duration(seconds: 10);
+
+      if (positionChange.inSeconds > 5 &&
+          timeSinceLastChange < _rapidSeekThreshold * 2) {
+        if (!_isSeeking) {
+          debugPrint('🎯 Seek detected: ${positionChange.inSeconds}s jump');
+          _isSeeking = true;
+          _isSegmentValid = false;
+        }
+        _lastSeekDetectionTime = now;
+      } else if (positionChange.inSeconds <= 1 &&
+          timeSinceLastChange > Duration(seconds: 2)) {
+        _isSeeking = false;
+      }
+    }
+  }
+
+  void _updateWatchedSegments(Duration currentPosition, bool isPlaying) {
+    if (!isPlaying || _isSeeking) return;
+
+    final blockIndex = (currentPosition.inSeconds / 10).floor();
+    final blockKey = 'block_${blockIndex * 10}_${(blockIndex + 1) * 10}';
+
+    _watchedSegments.update(
+      blockKey,
+          (value) => value + Duration(seconds: 1),
+      ifAbsent: () => Duration(seconds: 1),
+    );
+  }
+
+  void _trackPlaybackSegments(Duration currentPosition, bool isPlaying) {
+    final now = DateTime.now();
+
+    if (isPlaying && !_isSeeking && _isSegmentValid) {
+      if (_playbackSegments.isEmpty ||
+          _playbackSegments.last['endPosition'] != null) {
+        _playbackSegments.add({
+          'startPosition': currentPosition,
+          'startTime': now,
+          'endPosition': null,
+          'endTime': null,
+          'valid': true,
+        });
+      }
+    } else if (!isPlaying && _playbackSegments.isNotEmpty &&
+        _playbackSegments.last['endPosition'] == null) {
+      _playbackSegments.last['endPosition'] = currentPosition;
+      _playbackSegments.last['endTime'] = now;
+
+      final startPos = _playbackSegments.last['startPosition'] as Duration;
+      final endPos = _playbackSegments.last['endPosition'] as Duration;
+      final segmentDuration = endPos - startPos;
+
+      _playbackSegments.last['valid'] = segmentDuration.inSeconds >= widget.minimumValidSegmentDuration;
+
+      if (_playbackSegments.last['valid'] as bool) {
+        _validWatchSegments++;
+      }
+      _totalSegments++;
+
+      _isSegmentValid = true;
+    }
+
+    if (isPlaying && _playbackSegments.isNotEmpty &&
+        _playbackSegments.last['endPosition'] == null) {
+      final startPos = _playbackSegments.last['startPosition'] as Duration;
+      final segmentDuration = currentPosition - startPos;
+
+      if (segmentDuration.inSeconds >= 30) {
+        _playbackSegments.last['endPosition'] = currentPosition;
+        _playbackSegments.last['endTime'] = now;
+        _playbackSegments.last['valid'] = true;
+        _validWatchSegments++;
+        _totalSegments++;
+
+        _playbackSegments.add({
+          'startPosition': currentPosition,
+          'startTime': now,
+          'endPosition': null,
+          'endTime': null,
+          'valid': true,
+        });
+      }
+    }
+  }
+
+  void _checkForSuspiciousBehavior(Duration currentPosition, bool isPlaying) {
+    if (_actualVideoDuration == null) return;
+
+    final totalDuration = _actualVideoDuration!.inSeconds;
+    if (totalDuration == 0) return;
+
+    final totalPossibleBlocks = (totalDuration / 10).ceil();
+    final watchedBlockPercentage = totalPossibleBlocks > 0
+        ? _watchedSegments.length / totalPossibleBlocks
+        : 0.0;
+
+    final jumpRatio = totalDuration > 0
+        ? _forwardButtonCount / max(1, totalDuration ~/ 60)
+        : 0.0;
+
+    if (_suspectCheating) {
+      final hasWatchedSignificantly = watchedBlockPercentage > _minimumRequiredWatchPercentage * 0.7;
+      final hasNoRecentJumps = _forwardButtonCount == 0 ||
+          (DateTime.now().difference(_videoStartTime ?? DateTime.now()).inSeconds > 30);
+      final isWatchingContinuously = isPlaying && !_isSeeking;
+
+      if (hasWatchedSignificantly && hasNoRecentJumps && isWatchingContinuously) {
+        debugPrint('✅ User resumed proper watching - resetting suspicion');
+        _suspectCheating = false;
+        _warningShownForCurrentSession = false;
       }
     }
 
-    _lastPosition = currentPosition;
+    final newSuspiciousBehavior = (
+        _totalWatchTime.inSeconds > totalDuration * 0.3 &&
+            watchedBlockPercentage < _minimumRequiredWatchPercentage * 0.3
+    ) ||
+        jumpRatio > 5.0 ||
+        _consecutiveForwardJumps > 10 ||
+        (_totalSegments > 5 && _validWatchSegments < _totalSegments * 0.2) ||
+        _isSeeking;
 
-    // Check for completion
-    if (playerState == PlayerState.ended && !_videoMarkedAsCompleted) {
-      _evaluateCompletion();
+    if (newSuspiciousBehavior && !_suspectCheating) {
+      _suspectCheating = true;
+      debugPrint('⚠️ New suspicious behavior detected');
     }
   }
 
@@ -215,123 +404,244 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
     final currentPosition = controller.value.position;
     final isPlaying = controller.value.isPlaying;
 
-    // Track play/pause
-    if (isPlaying) {
-      if (_videoStartTime == null) {
-        _videoStartTime = DateTime.now();
-        _startWatchTimer();
-      }
-    } else {
-      _watchTimer?.cancel();
+    if (!isPlaying && currentPosition.inSeconds >= (_actualVideoDuration?.inSeconds ?? 0) * 0.99) {
+      debugPrint('🎬 Video ended detected at ${currentPosition.inSeconds}s');
+      _trackPlaybackSegments(currentPosition, false);
+      _checkForCompletion(currentPosition, false);
     }
 
-    // Track forward jumps (from dragging or forward button)
-    if (!_isDragging && _lastPosition.inSeconds > 0) {
+    if (_lastPosition.inSeconds > 0 && !_isSeeking) {
       final jump = currentPosition - _lastPosition;
+
       if (jump.inSeconds >= 10) {
-        // Detected a forward jump of 10+ seconds
         _forwardButtonCount++;
         _forwardJumps.add(currentPosition);
-        debugPrint('⏩ Forward jump detected: $jump (count: $_forwardButtonCount)');
+
+        if (jump.inSeconds >= 10 && _lastPosition.inSeconds > 0) {
+          final timeSinceLastJump = _forwardJumps.length > 1
+              ? currentPosition - _forwardJumps[_forwardJumps.length - 2]
+              : Duration(minutes: 5);
+
+          if (timeSinceLastJump.inSeconds < 30) {
+            _consecutiveForwardJumps++;
+          } else {
+            _consecutiveForwardJumps = 1;
+          }
+        }
+
+        if (_actualVideoDuration != null &&
+            currentPosition.inSeconds > _actualVideoDuration!.inSeconds * 0.9 &&
+            jump.inSeconds > _actualVideoDuration!.inSeconds * 0.3) {
+          _isSegmentValid = false;
+        }
+      }
+
+      if (jump.inSeconds <= -10) {
+        debugPrint('⏪ Rewind detected: ${jump.abs().inSeconds}s');
+        _consecutiveForwardJumps = 0;
+        if (_warningShownForCurrentSession) {
+          _warningShownForCurrentSession = false;
+        }
       }
     }
 
     _lastPosition = currentPosition;
 
-    // Check if user dragged to end without watching
-    final isNearEnd = currentPosition >= controller.value.duration * 0.95;
-    if (isNearEnd && !_videoMarkedAsCompleted) {
-      _evaluateCompletion();
+    final now = DateTime.now();
+    if (_lastProgressUpdateTime == null ||
+        now.difference(_lastProgressUpdateTime!).inSeconds >= 10) {
+      _sendProgressUpdate();
+      _lastProgressUpdateTime = now;
     }
+
+    _checkForCompletion(currentPosition, isPlaying);
   }
 
-// Update your timer to call this periodically
-  void _startWatchTimer() {
-    _watchTimer?.cancel();
-    _watchTimer = Timer.periodic(const Duration(seconds: 30), (timer) async { // Every 30 seconds
-      if (_videoStartTime != null) {
-        _totalWatchedTime = _totalWatchedTime + const Duration(seconds: 30);
-        debugPrint('⏱️ Total watched time: $_totalWatchedTime');
+  void _checkForCompletion(Duration currentPosition, bool isPlaying) {
+    if (_actualVideoDuration == null || _videoMarkedAsCompleted) return;
 
-        // Send progress update to backend
-        await _sendProgressUpdate();
+    final videoDuration = _actualVideoDuration!;
+    final isNearEnd = currentPosition.inSeconds >= videoDuration.inSeconds * 0.95;
 
-        // Check if we've watched enough
-        final targetDuration = _actualVideoDuration ?? widget.videoDuration;
-        if (targetDuration != null) {
-          final requiredWatchTime = targetDuration * 0.95;
-          if (_totalWatchedTime >= requiredWatchTime) {
-            debugPrint('✅ Watched 95% of video duration');
-            _evaluateCompletion();
-          }
-        }
-      }
-    });
-  }
+    if (!isNearEnd) return;
 
-  void _handleDragStart() {
-    _isDragging = true;
-    _watchTimer?.cancel();
-  }
-
-  void _handleDragEnd() {
-    _isDragging = false;
-    if ((_videoCtrl?.value.isPlaying ?? false) ||
-        (_youtubeCtrl?.value.playerState == PlayerState.playing)) {
-      _startWatchTimer();
+    final now = DateTime.now();
+    if (_lastCompletionCheckTime != null &&
+        now.difference(_lastCompletionCheckTime!).inSeconds < 2) {
+      return;
     }
-  }
+    _lastCompletionCheckTime = now;
 
-  Future<void> _evaluateCompletion() async {
-    if (_videoMarkedAsCompleted) return;
+    final timeSinceSessionStart = _sessionStartTime != null
+        ? now.difference(_sessionStartTime!).inSeconds
+        : 0;
 
-    final targetDuration = _actualVideoDuration ?? widget.videoDuration;
-    if (targetDuration == null) {
-      debugPrint('⚠️ Cannot evaluate: Video duration unknown');
+    final minimumSessionTime = max(videoDuration.inSeconds * 0.8, 5.0).toInt();
+
+    if (timeSinceSessionStart < minimumSessionTime) {
+      debugPrint('⏰ Not enough session time: $timeSinceSessionStart/$minimumSessionTime seconds');
       return;
     }
 
-    final requiredWatchTime = targetDuration * 0.95;
-    final skippedTooMuch = _forwardButtonCount >= 10;
+    final totalWatchedBlocks = _watchedSegments.length;
+    final totalPossibleBlocks = (videoDuration.inSeconds / 10).ceil();
+    final watchedBlockPercentage = totalPossibleBlocks > 0
+        ? totalWatchedBlocks / totalPossibleBlocks
+        : 0.0;
 
-    debugPrint('\n📊 Completion Evaluation:');
-    debugPrint('  Total watched: $_totalWatchedTime');
-    debugPrint('  Required (95%): $requiredWatchTime');
-    debugPrint('  Forward button presses: $_forwardButtonCount');
-    debugPrint('  Skipped too much: $skippedTooMuch');
-
-    // Check completion criteria
-    if (_totalWatchedTime >= requiredWatchTime && !skippedTooMuch) {
-      await _markVideoAsCompleted();
-    } else {
-      debugPrint('❌ Video NOT marked as complete:');
-      if (_totalWatchedTime < requiredWatchTime) {
-        debugPrint('  - Watched only ${(_totalWatchedTime.inSeconds / targetDuration.inSeconds * 100).toStringAsFixed(1)}% of video');
+    Duration totalValidWatchTime = Duration.zero;
+    for (final segment in _playbackSegments) {
+      if (segment['valid'] == true) {
+        final startPos = segment['startPosition'] as Duration;
+        final endPos = segment['endPosition'] as Duration? ?? currentPosition;
+        totalValidWatchTime += endPos - startPos;
       }
-      if (skippedTooMuch) {
-        debugPrint('  - Skipped too much (forwarded $_forwardButtonCount times)');
-      }
+    }
 
-      // Show feedback to user
-      if (mounted) {
+    final continuousWatchPercentage = videoDuration.inSeconds > 0
+        ? totalValidWatchTime.inSeconds / videoDuration.inSeconds
+        : 0.0;
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              skippedTooMuch
-                  ? 'Watch more of the video to complete it'
-                  : 'Please watch more of the video to mark it complete',
-            ),
-            backgroundColor: Colors.orange,
-            duration: const Duration(seconds: 3),
-          ),
-        );
+    final requirementsMet =
+        !_suspectCheating &&
+            !_isSeeking &&
+            watchedBlockPercentage >= _minimumRequiredWatchPercentage * 0.7 &&
+            continuousWatchPercentage >= _minimumRequiredWatchPercentage * 0.5 &&
+            _consecutiveForwardJumps <= 5 &&
+            (_totalSegments == 0 || _validWatchSegments >= max(1, _totalSegments * 0.3)) &&
+            (isPlaying || currentPosition.inSeconds >= videoDuration.inSeconds * 0.98) &&
+            timeSinceSessionStart >= minimumSessionTime;
+
+    debugPrint('📊 Completion Check:');
+    debugPrint('   ├─ Requirements met: $requirementsMet');
+    debugPrint('   ├─ Suspect cheating: $_suspectCheating');
+
+    if (requirementsMet) {
+      _markVideoAsCompleted();
+    } else if (isNearEnd && !_videoMarkedAsCompleted) {
+      final shouldShowWarning = !_warningShownForCurrentSession &&
+          (_lastWarningTime == null ||
+              now.difference(_lastWarningTime!).inSeconds > _minTimeBetweenWarnings);
+
+      if (shouldShowWarning) {
+        _showCompletionWarning();
+        _warningShownForCurrentSession = true;
+        _lastWarningTime = now;
       }
     }
   }
 
-// In your Flutter AppVideoPlayer widget, update the _markVideoAsCompleted method:
+  void _showCompletionWarning() {
+    if (_videoMarkedAsCompleted) return;
 
+    ScaffoldMessenger.of(context).clearSnackBars();
+
+    final snackBar = SnackBar(
+      content: const Text('Please watch more of the video to mark it as completed'),
+      backgroundColor: Colors.orange,
+      duration: Duration(seconds: 5),
+      action: SnackBarAction(
+        label: 'DETAILS',
+        textColor: Colors.white,
+        onPressed: () {
+          _showWatchStats();
+        },
+      ),
+    );
+
+    ScaffoldMessenger.of(context).showSnackBar(snackBar);
+  }
+
+  void _handleYouTubeVideoState(YoutubePlayerController controller) {
+    if (!controller.value.isReady) return;
+
+    final currentPosition = controller.value.position;
+    final playerState = controller.value.playerState;
+
+    if (_lastPosition.inSeconds > 0) {
+      final jump = currentPosition - _lastPosition;
+
+      if (jump.inSeconds >= 30) {
+        _forwardButtonCount++;
+        _forwardJumps.add(currentPosition);
+
+        if (_forwardJumps.length > 1) {
+          final lastJumpTime = _forwardJumps[_forwardJumps.length - 2];
+          if (currentPosition - lastJumpTime < Duration(seconds: 30)) {
+            _consecutiveForwardJumps++;
+          }
+        }
+
+        if (jump.inSeconds > 60) {
+          _suspectCheating = true;
+        }
+      }
+    }
+
+    _lastPosition = currentPosition;
+
+    if (playerState == PlayerState.playing) {
+      final blockIndex = (currentPosition.inSeconds / 10).floor();
+      final blockKey = 'block_${blockIndex * 10}_${(blockIndex + 1) * 10}';
+      _watchedSegments.update(
+        blockKey,
+            (value) => value + Duration(seconds: 1),
+        ifAbsent: () => Duration(seconds: 1),
+      );
+    }
+
+    final now = DateTime.now();
+    if (_lastProgressUpdateTime == null ||
+        now.difference(_lastProgressUpdateTime!).inSeconds >= 10) {
+      _sendProgressUpdate();
+      _lastProgressUpdateTime = now;
+    }
+
+    if (playerState == PlayerState.ended && !_videoMarkedAsCompleted) {
+      _checkYouTubeCompletion();
+    }
+  }
+
+  void _checkYouTubeCompletion() {
+    if (_actualVideoDuration == null) {
+      _actualVideoDuration = widget.videoDuration;
+    }
+
+    if (_actualVideoDuration == null) {
+      if (!_suspectCheating && _forwardButtonCount <= 5) {
+        _markVideoAsCompleted();
+      }
+      return;
+    }
+
+    final videoDuration = _actualVideoDuration!;
+    final totalWatchedBlocks = _watchedSegments.length;
+    final totalPossibleBlocks = (videoDuration.inSeconds / 10).ceil();
+    final watchedBlockPercentage = totalWatchedBlocks / totalPossibleBlocks;
+
+    final requirementsMet =
+        !_suspectCheating &&
+            watchedBlockPercentage >= _minimumRequiredWatchPercentage * 0.9 &&
+            _consecutiveForwardJumps <= 4 &&
+            _forwardButtonCount <= (videoDuration.inSeconds / 60).ceil() * 2;
+
+    if (requirementsMet) {
+      _markVideoAsCompleted();
+    } else if (!_videoMarkedAsCompleted) {
+      final now = DateTime.now();
+      final shouldShowWarning = !_warningShownForCurrentSession &&
+          (_lastWarningTime == null ||
+              now.difference(_lastWarningTime!).inSeconds > _minTimeBetweenWarnings);
+
+      if (shouldShowWarning) {
+        _showCompletionWarning();
+        _warningShownForCurrentSession = true;
+        _lastWarningTime = now;
+      }
+    }
+  }
+
+  // FIXED: Send progress updates with isCompleted flag when video is completed
   Future<void> _sendProgressUpdate() async {
     if (widget.videoId == null || widget.userId == null) return;
 
@@ -341,86 +651,156 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
 
       if (videoId == null || userId == null) return;
 
-      final url = '$baseUrl/api/videos/$videoId/progress';
+      final currentPosition = _isYouTubeUrl
+          ? (_youtubeCtrl?.value.position ?? Duration.zero)
+          : (_videoCtrl?.value.position ?? Duration.zero);
+
+      final totalWatchedBlocks = _watchedSegments.length;
+      final totalPossibleBlocks = _actualVideoDuration != null
+          ? (_actualVideoDuration!.inSeconds / 10).ceil()
+          : 0;
+      final watchQuality = totalPossibleBlocks > 0
+          ? totalWatchedBlocks / totalPossibleBlocks
+          : 0.0;
+
+      // Calculate progress percentage based on video duration
+      final progressPercentage = _actualVideoDuration != null && _actualVideoDuration!.inSeconds > 0
+          ? min(currentPosition.inSeconds / _actualVideoDuration!.inSeconds * 100, 100.0)
+          : 0.0;
 
       final progressData = {
-        'videoId': videoId,
         'userId': userId,
-        'watchedSeconds': _totalWatchedTime.inSeconds,
-        'lastPositionSeconds': _lastPosition.inSeconds,
+        'watchedSeconds': currentPosition.inSeconds,
+        'lastPositionSeconds': currentPosition.inSeconds,
         'forwardJumpsCount': _forwardButtonCount,
+        'consecutiveJumps': _consecutiveForwardJumps,
+        'totalWatchTime': _totalWatchTime.inSeconds,
+        'watchQuality': watchQuality,
+        'watchedBlocks': totalWatchedBlocks,
+        'suspectCheating': _suspectCheating,
+        'currentlySeeking': _isSeeking,
+        'progressPercentage': progressPercentage, // NEW: Add progress percentage
+        'isCompleted': _videoMarkedAsCompleted, // NEW: Add completion status
+        'completedAt': _videoMarkedAsCompleted ? DateTime.now().toIso8601String() : null, // NEW: Completion timestamp
+        'playbackSegments': _playbackSegments.map((segment) => ({
+          'startPosition': (segment['startPosition'] as Duration).inSeconds,
+          'endPosition': (segment['endPosition'] as Duration?)?.inSeconds,
+          'startTime': (segment['startTime'] as DateTime).toIso8601String(),
+          'endTime': (segment['endTime'] as DateTime?)?.toIso8601String(),
+          'valid': segment['valid'],
+        })).toList(),
       };
 
-      final response = await http.post(
-        Uri.parse(url),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(progressData),
+      final response = await _httpService.post<Map<String, dynamic>>(
+        '/api/videos/$videoId/progress',
+            (data) => data as Map<String, dynamic>,
+        body: progressData,
       );
 
-      if (response.statusCode == 200) {
-        debugPrint('📊 Progress updated: ${_totalWatchedTime.inSeconds}s watched');
+      if (response.isSuccess) {
+        debugPrint('📊 Progress updated: ${progressPercentage.toStringAsFixed(1)}%');
+      } else {
+        debugPrint('❌ Progress update failed: ${response.errorMessage}');
       }
     } catch (e) {
       debugPrint('❌ Error updating progress: $e');
     }
   }
 
+  // FIXED: Send final 100% progress update before marking as completed
   Future<void> _markVideoAsCompleted() async {
-    if (_videoMarkedAsCompleted) return;
-
-    // Check if we have all required IDs
-    if (widget.videoId == null ||
-        widget.userId == null ||
-        widget.courseId == null ||
-        widget.moduleId == null) {
-      debugPrint('⚠️ Missing IDs for video completion');
+    if (_videoMarkedAsCompleted) {
+      debugPrint('⏭️ Video already marked as completed - skipping');
       return;
     }
 
-    try {
-      debugPrint('📞 Calling video completion API...');
+    if (_isMarkingAsCompleted) {
+      debugPrint('⏭️ Already in process of marking video as completed - skipping');
+      return;
+    }
 
-      // Parse IDs
+    _isMarkingAsCompleted = true;
+
+    try {
       final videoId = int.tryParse(widget.videoId!);
       final userId = int.tryParse(widget.userId!);
       final courseId = int.tryParse(widget.courseId!);
       final moduleId = int.tryParse(widget.moduleId!);
 
       if (videoId == null || userId == null) {
-        debugPrint('❌ Failed to parse required IDs');
+        _isMarkingAsCompleted = false;
         return;
       }
 
-      // FIXED: Create proper URL with only videoId in path
-      final url = '$baseUrl/api/videos/$videoId/complete';
-      debugPrint('   ├─ API URL: $url');
+      // STEP 1: Send FINAL progress update with 100% completion
+      if (_actualVideoDuration != null) {
+        debugPrint('📤 Sending final 100% progress update...');
 
-      // FIXED: Create query parameters
-      final uri = Uri.parse(url).replace(queryParameters: {
-        'userId': userId.toString(),
-        if (courseId != null) 'courseId': courseId.toString(),
-        if (moduleId != null) 'moduleId': moduleId.toString(),
-      });
+        final totalPossibleBlocks = (_actualVideoDuration!.inSeconds / 10).ceil();
 
-      debugPrint('   ├─ Full URI: $uri');
+        final finalProgressData = {
+          'userId': userId,
+          'watchedSeconds': _actualVideoDuration!.inSeconds, // Full duration
+          'lastPositionSeconds': _actualVideoDuration!.inSeconds, // At end
+          'forwardJumpsCount': _forwardButtonCount,
+          'consecutiveJumps': _consecutiveForwardJumps,
+          'totalWatchTime': _totalWatchTime.inSeconds,
+          'watchQuality': 1.0, // 100% quality
+          'watchedBlocks': totalPossibleBlocks, // All blocks
+          'suspectCheating': false, // Reset for completion
+          'currentlySeeking': false,
+          'progressPercentage': 100.0, // 100% progress
+          'isCompleted': true, // Mark as completed
+          'completedAt': DateTime.now().toIso8601String(), // Completion timestamp
+          'playbackSegments': _playbackSegments.map((segment) => ({
+            'startPosition': (segment['startPosition'] as Duration).inSeconds,
+            'endPosition': (segment['endPosition'] as Duration?)?.inSeconds,
+            'startTime': (segment['startTime'] as DateTime).toIso8601String(),
+            'endTime': (segment['endTime'] as DateTime?)?.toIso8601String(),
+            'valid': segment['valid'],
+          })).toList(),
+        };
 
-      // Make POST request with empty body (parameters are in URL)
-      final response = await http.post(
-        uri,
-        headers: {'Content-Type': 'application/json'},
+        final progressResponse = await _httpService.post<Map<String, dynamic>>(
+          '/api/videos/$videoId/progress',
+              (data) => data as Map<String, dynamic>,
+          body: finalProgressData,
+        );
+
+        if (progressResponse.isSuccess) {
+          debugPrint('✅ Final 100% progress update sent successfully');
+        } else {
+          debugPrint('⚠️ Final progress update failed, but continuing with completion...');
+        }
+      }
+
+      // STEP 2: Mark video as completed in the system
+      debugPrint('📤 Marking video as completed in system...');
+
+      String url = '/api/videos/$videoId/complete?userId=$userId';
+
+      if (courseId != null) {
+        url += '&courseId=$courseId';
+      }
+      if (moduleId != null) {
+        url += '&moduleId=$moduleId';
+      }
+
+      final response = await _httpService.post<Map<String, dynamic>>(
+        url,
+            (data) => data as Map<String, dynamic>,
+        body: {},
       );
 
-      debugPrint('   ├─ Response Status: ${response.statusCode}');
-      debugPrint('   ├─ Response Body: ${response.body}');
-
-      if (response.statusCode == 200) {
-        final responseData = jsonDecode(response.body);
+      if (response.isSuccess && response.data != null) {
+        final responseData = response.data!;
         if (responseData['success'] == true) {
-          debugPrint('✅ Video $videoId marked as completed in database!');
+          debugPrint('✅ Video $videoId marked as completed in system!');
           _videoMarkedAsCompleted = true;
-          _watchTimer?.cancel();
 
-          // Show success message
+          // Clear any warnings since video is now complete
+          ScaffoldMessenger.of(context).clearSnackBars();
+
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
@@ -431,20 +811,44 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
             );
           }
 
-          // Call parent callback
+          // Call completion callback
           widget.onVideoCompleted?.call();
+
+          // Send one more progress update to ensure backend has latest state
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _sendProgressUpdate();
+          });
+
         } else {
           debugPrint('❌ API returned error: ${responseData['error']}');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Error: ${responseData['error']}'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
         }
       } else {
-        debugPrint('❌ Failed to mark video complete: ${response.statusCode}');
-        debugPrint('Response body: ${response.body}');
+        debugPrint('❌ Failed to mark video complete: ${response.errorMessage}');
 
-        // Show error to user
+        if (response.statusCode == 400) {
+          final responseBody = response.data;
+          if (responseBody?['error']?.contains('already completed') ?? false ||
+              responseBody?['error']?.contains('rollback-only') ?? false) {
+            debugPrint('ℹ️ Video already completed or transaction issue');
+            _videoMarkedAsCompleted = true;
+            widget.onVideoCompleted?.call();
+            _isMarkingAsCompleted = false;
+            return;
+          }
+        }
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Failed to save progress: ${response.statusCode}'),
+              content: Text('Failed to save progress: ${response.errorMessage}'),
               backgroundColor: Colors.red,
             ),
           );
@@ -452,7 +856,6 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
       }
     } catch (e) {
       debugPrint('❌ Error marking video complete: $e');
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -461,48 +864,115 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
           ),
         );
       }
+    } finally {
+      _isMarkingAsCompleted = false;
     }
   }
 
-  void _testMarkAsCompleted() {
-    debugPrint('🧪 Manual test: Marking video as completed');
-    _markVideoAsCompleted();
-  }
-
   void _showWatchStats() {
+    final currentPosition = _isYouTubeUrl
+        ? (_youtubeCtrl?.value.position ?? Duration.zero)
+        : (_videoCtrl?.value.position ?? Duration.zero);
+
     final targetDuration = _actualVideoDuration ?? widget.videoDuration;
-    final percentage = targetDuration != null
-        ? (_totalWatchedTime.inSeconds / targetDuration.inSeconds * 100).toStringAsFixed(1)
+
+    final totalPossibleBlocks = targetDuration != null
+        ? (targetDuration.inSeconds / 10).ceil()
+        : 0;
+    final watchedBlockPercentage = totalPossibleBlocks > 0
+        ? (_watchedSegments.length / totalPossibleBlocks * 100).toStringAsFixed(1)
         : 'N/A';
+
+    final progressPercentage = targetDuration != null && targetDuration.inSeconds > 0
+        ? min(currentPosition.inSeconds / targetDuration.inSeconds * 100, 100.0).toStringAsFixed(1)
+        : '0.0';
 
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Watch Statistics'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Total watched: $_totalWatchedTime'),
-            Text('Forward button presses: $_forwardButtonCount'),
-            Text('Watched percentage: $percentage%'),
-            Text('Forward jumps at: ${_forwardJumps.map((d) => "${d.inSeconds}s").join(", ")}'),
-            if (targetDuration != null)
-              Text('Required (95%): ${(targetDuration * 0.95).toString()}'),
-          ],
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildStatRow('Current Position', '${currentPosition.inSeconds}s'),
+              if (targetDuration != null)
+                _buildStatRow('Total Duration', '${targetDuration.inSeconds}s'),
+              _buildStatRow('Progress', '$progressPercentage%'),
+              _buildStatRow('Total Watch Time', '${_totalWatchTime.inSeconds}s'),
+              _buildStatRow('Forward Jumps', '$_forwardButtonCount'),
+              _buildStatRow('Consecutive Jumps', '$_consecutiveForwardJumps'),
+              _buildStatRow('Watched Blocks', '${_watchedSegments.length}/$totalPossibleBlocks ($watchedBlockPercentage%)'),
+              _buildStatRow('Valid Segments', '$_validWatchSegments/$_totalSegments'),
+              _buildStatRow('Currently Seeking', _isSeeking ? 'YES' : 'NO'),
+              _buildStatRow('Suspicious Behavior', _suspectCheating ? 'YES ⚠️' : 'NO ✅'),
+              _buildStatRow('Video Status', _videoMarkedAsCompleted ? 'COMPLETED ✅' : 'IN PROGRESS'),
+              if (_sessionStartTime != null)
+                _buildStatRow('Session Time', '${DateTime.now().difference(_sessionStartTime!).inSeconds}s'),
+              const SizedBox(height: 10),
+              const Text(
+                'Completion Status:',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 5),
+              _buildTip(_videoMarkedAsCompleted
+                  ? '✅ Video is marked as completed in system'
+                  : '⏳ Video is still in progress'),
+              _buildTip('Progress sent to backend: $progressPercentage%'),
+              if (_videoMarkedAsCompleted)
+                _buildTip('🎉 Streak should update on next calculation'),
+            ],
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
+            child: const Text('CLOSE'),
           ),
+          if (_suspectCheating)
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _suspectCheating = false;
+                _warningShownForCurrentSession = false;
+                ScaffoldMessenger.of(context).clearSnackBars();
+              },
+              child: const Text('RESET WARNING'),
+            ),
         ],
       ),
     );
   }
 
+  Widget _buildStatRow(String label, String value) {
+    return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+            Text(value),
+          ],
+        )
+    );
+  }
+
+  Widget _buildTip(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 8, top: 2),
+      child: Text(text, style: const TextStyle(fontSize: 12)),
+    );
+  }
+
   void _dispose() {
-    _watchTimer?.cancel();
+    debugPrint('♻️ Disposing video player and tracking');
+    _playbackTimer?.cancel();
+    _playbackTimer = null;
     _chewieCtrl?.dispose();
     _videoCtrl?.dispose();
     _youtubeCtrl?.dispose();
@@ -521,17 +991,9 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
 
   @override
   Widget build(BuildContext context) {
-    // Show error state
-    if (_initError) {
-      return _buildErrorState();
-    }
+    if (_initError) return _buildErrorState();
+    if (!_isInitialized) return _buildLoadingState();
 
-    // Show loading state
-    if (!_isInitialized) {
-      return _buildLoadingState();
-    }
-
-    // Show YouTube player
     if (_isYouTubeUrl) {
       if (kIsWeb && _youtubeId != null) {
         return _buildWebYouTubePlayer();
@@ -540,12 +1002,10 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
       }
     }
 
-    // Show regular video player
     if (!_isYouTubeUrl && _videoCtrl != null && _chewieCtrl != null) {
       return _buildRegularVideoPlayer();
     }
 
-    // Fallback loading state
     return _buildLoadingState();
   }
 
@@ -585,89 +1045,42 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
         color: Colors.black,
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Stack(
-        children: [
-          Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.play_circle_filled, size: 64, color: Colors.white),
-                const SizedBox(height: 16),
-                const Text(
-                  'YouTube Video',
-                  style: TextStyle(color: Colors.white, fontSize: 18),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Video ID: $_youtubeId',
-                  style: const TextStyle(color: Colors.white70, fontSize: 14),
-                ),
-              ],
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.play_circle_filled, size: 64, color: Colors.white),
+            const SizedBox(height: 16),
+            const Text(
+              'YouTube Video',
+              style: TextStyle(color: Colors.white, fontSize: 18),
             ),
-          ),
-          Positioned(
-            bottom: 10,
-            right: 10,
-            child: Column(
-              children: [
-                FloatingActionButton.small(
-                  onPressed: _testMarkAsCompleted,
-                  child: const Icon(Icons.check),
-                  tooltip: 'Mark as completed (Test)',
-                ),
-                const SizedBox(height: 8),
-                FloatingActionButton.small(
-                  onPressed: _showWatchStats,
-                  child: const Icon(Icons.analytics),
-                  tooltip: 'Show watch statistics',
-                ),
-              ],
+            const SizedBox(height: 8),
+            Text(
+              'Video ID: $_youtubeId',
+              style: const TextStyle(color: Colors.white70, fontSize: 14),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildMobileYouTubePlayer() {
-    return Stack(
-      children: [
-        Container(
-          color: Colors.black,
-          child: YoutubePlayer(
-            controller: _youtubeCtrl!,
-            showVideoProgressIndicator: true,
-            progressIndicatorColor: Colors.redAccent,
-            progressColors: const ProgressBarColors(
-              playedColor: Colors.redAccent,
-              handleColor: Colors.redAccent,
-            ),
-            onEnded: (data) {
-              debugPrint('📱 YouTube video ended - evaluating completion');
-              _evaluateCompletion();
-            },
-          ),
+    return Container(
+      color: Colors.black,
+      child: YoutubePlayer(
+        controller: _youtubeCtrl!,
+        showVideoProgressIndicator: true,
+        progressIndicatorColor: Colors.redAccent,
+        progressColors: const ProgressBarColors(
+          playedColor: Colors.redAccent,
+          handleColor: Colors.redAccent,
         ),
-        Positioned(
-          bottom: 10,
-          right: 10,
-          child: Column(
-            children: [
-              FloatingActionButton.small(
-                onPressed: _testMarkAsCompleted,
-                child: const Icon(Icons.check),
-                tooltip: 'Mark as completed (Test)',
-              ),
-              const SizedBox(height: 8),
-              FloatingActionButton.small(
-                onPressed: _showWatchStats,
-                child: const Icon(Icons.analytics),
-                tooltip: 'Show watch statistics',
-              ),
-            ],
-          ),
-        ),
-      ],
+        onEnded: (data) {
+          _checkYouTubeCompletion();
+        },
+      ),
     );
   }
 
@@ -676,36 +1089,9 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
         ? _videoCtrl!.value.aspectRatio
         : 16 / 9;
 
-    return Stack(
-      children: [
-        GestureDetector(
-          onHorizontalDragStart: (_) => _handleDragStart(),
-          onHorizontalDragEnd: (_) => _handleDragEnd(),
-          child: AspectRatio(
-            aspectRatio: aspect,
-            child: Chewie(controller: _chewieCtrl!),
-          ),
-        ),
-        Positioned(
-          bottom: 10,
-          right: 10,
-          child: Column(
-            children: [
-              FloatingActionButton.small(
-                onPressed: _testMarkAsCompleted,
-                child: const Icon(Icons.check),
-                tooltip: 'Mark as completed (Test)',
-              ),
-              const SizedBox(height: 8),
-              FloatingActionButton.small(
-                onPressed: _showWatchStats,
-                child: const Icon(Icons.analytics),
-                tooltip: 'Show watch statistics',
-              ),
-            ],
-          ),
-        ),
-      ],
+    return AspectRatio(
+      aspectRatio: aspect,
+      child: Chewie(controller: _chewieCtrl!),
     );
   }
 }

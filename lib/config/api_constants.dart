@@ -20,8 +20,8 @@ class ApiConstants {
   static const String verifyOtp = '/auth/verify-otp';
   
   // User Endpoints
-  static const String userProfile = '/users/profile';
-  static const String updateProfile = '/users/profile';
+  static const String userProfile = '/auth/profile/me';
+  static const String updateProfile = '/auth/profile/update';
   static const String changePassword = '/users/change-password';
   
   // Course Endpoints

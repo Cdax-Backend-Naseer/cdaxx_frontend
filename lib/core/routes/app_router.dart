@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 
 import '../../screens/onboarding/before_signup_course_detail_screen.dart';
 import '../../screens/onboarding/before_signup_screen.dart';
 import '../../screens/onboarding/onboarding_screen.dart';
+import '../../screens/profile/presentation/cart_screen.dart';
+import '../../screens/profile/presentation/favorites_screen.dart';
 import 'page_transitions.dart';
 import '../../screens/auth/presentation/forgot_password_screen.dart';
 import '../../screens/auth/presentation/login_screen.dart';
@@ -40,6 +43,8 @@ import '../../screens/placement/profile_screen.dart' as placement_profile;
 import '../../screens/placement/job_list_screen.dart';
 import '../../screens/placement/job_detail_screen.dart';
 
+import '../../providers/user_provider.dart';
+
 /// Centralized application router using GoRouter
 /// Defines all app routes and navigation logic.
 class AppRouter {
@@ -49,11 +54,95 @@ class AppRouter {
   static final GlobalKey<NavigatorState> navigatorKey =
   GlobalKey<NavigatorState>();
 
+  // Route redirection logic
+  static String? _redirect(BuildContext context, GoRouterState state) {
+    print('🔄 Route Redirect Check:');
+    print('   ├─ Current route: ${state.uri.toString()}');
+    print('   ├─ Matched location: ${state.matchedLocation}');
+
+    final userProvider = Provider.of<UserProvider>(context, listen: false);
+    final isAuthenticated = userProvider.isAuthenticated;
+    final isLoading = userProvider.isLoading;
+
+    print('   ├─ User authenticated: $isAuthenticated');
+    print('   ├─ User loading: $isLoading');
+
+    // If still loading, don't redirect yet
+    if (isLoading) {
+      print('   └─ Still loading, staying on current route');
+      return null;
+    }
+
+    // Public routes that don't require authentication
+    final publicRoutes = [
+      '/splash',
+      '/onboarding',
+      '/onboarding-slides',
+      '/before-sign-up',
+      '/before-sign-up/course/:courseId',
+      '/login',
+      '/signup',
+      '/forgot-password',
+      '/', // root redirect handled separately
+    ];
+
+    final currentLocation = state.uri.toString();
+    final isPublicRoute = publicRoutes.any((route) =>
+        _matchRoute(route, currentLocation)
+    );
+
+    print('   ├─ Is public route: $isPublicRoute');
+
+    // If user is authenticated and trying to access auth screens, redirect to dashboard
+    if (isAuthenticated && _isAuthRoute(currentLocation)) {
+      print('   └─ Authenticated user accessing auth route, redirecting to /dashboard');
+      return '/dashboard';
+    }
+
+    // If user is NOT authenticated and trying to access protected routes
+    if (!isAuthenticated && !isPublicRoute && !_isAuthRoute(currentLocation)) {
+      print('   └─ Unauthenticated user accessing protected route, redirecting to /login');
+      return '/login';
+    }
+
+    print('   └─ No redirect needed');
+    return null; // No redirect
+  }
+
+  // Check if route is an authentication route
+  static bool _isAuthRoute(String location) {
+    return location.contains('/login') ||
+        location.contains('/signup') ||
+        location.contains('/forgot-password');
+  }
+
+  // Simple route matching helper
+  static bool _matchRoute(String routePattern, String location) {
+    if (routePattern == location) return true;
+
+    // Handle parameterized routes
+    if (routePattern.contains(':')) {
+      final patternParts = routePattern.split('/');
+      final locationParts = location.split('/');
+
+      if (patternParts.length != locationParts.length) return false;
+
+      for (int i = 0; i < patternParts.length; i++) {
+        if (patternParts[i].startsWith(':')) continue;
+        if (patternParts[i] != locationParts[i]) return false;
+      }
+      return true;
+    }
+
+    return false;
+  }
+
   static final GoRouter router = GoRouter(
     navigatorKey: navigatorKey,
     initialLocation: '/splash',
+    redirect: _redirect,
     routes: <GoRoute>[
-// In your router.dart, update the root route:
+      // Root route redirect
       GoRoute(
         path: '/',
         redirect: (context, state) {
@@ -64,6 +153,7 @@ class AppRouter {
         },
       ),
 
+      // Public routes
       GoRoute(
         path: '/splash',
         name: 'splash',
@@ -121,7 +211,8 @@ class AppRouter {
         name: 'forgotPassword',
         builder: (context, state) => const ForgotPasswordScreen(),
       ),
-      /// Dashboard routes
+
+      /// Protected dashboard routes (requires authentication)
       GoRoute(
         path: '/dashboard',
         name: 'dashboard',
@@ -132,21 +223,38 @@ class AppRouter {
             name: 'dashboardHome',
             builder: (context, state) => const HomeScreen(),
           ),
+
+          // Cart Screen
+          GoRoute(
+            path: 'cart',
+            name: 'dashboardCart',
+            pageBuilder: (context, state) => AppPageTransitions.slideTransition(
+              child: const CartScreen(),
+              state: state,
+            ),
+          ),
+
+          // Favorites Screen
+          GoRoute(
+            path: 'favorites',
+            name: 'dashboardFavorites',
+            pageBuilder: (context, state) => AppPageTransitions.fadeTransition(
+              child: const FavoritesScreen(),
+              state: state,
+            ),
+          ),
+
           GoRoute(
             path: 'courses',
             name: 'dashboardCourses',
             builder: (context, state) {
               final extra = state.extra as Map<String, dynamic>?;
-
-              final bool showSubscribedOnly =
-                  extra?['showSubscribedOnly'] == true;
-
+              final bool showSubscribedOnly = extra?['showSubscribedOnly'] == true;
               return CourseListScreen(
                 showSubscribedOnly: showSubscribedOnly,
               );
             },
           ),
-
 
           GoRoute(
             path: 'courses/:id',
@@ -155,9 +263,6 @@ class AppRouter {
               final courseId = state.pathParameters['id']!;
               final Map<String, dynamic>? extra = state.extra as Map<String, dynamic>?;
               final userId = extra?['userId'] as String?;
-
-              print('🔍 GoRouter: Navigating to course $courseId for user $userId');
-
               return AppPageTransitions.heroTransition(
                 child: CourseDetailScreen(
                   courseId: courseId,
@@ -208,9 +313,6 @@ class AppRouter {
               final moduleId = state.pathParameters['moduleId']!;
               final Map<String, dynamic>? extra = state.extra as Map<String, dynamic>?;
               final userId = extra?['userId'] as String?;
-
-              print('🔍 GoRouter: Navigating to module $moduleId in course $courseId for user $userId');
-
               return MaterialPage(
                 key: state.pageKey,
                 child: ModulePlayerScreen(
@@ -228,18 +330,9 @@ class AppRouter {
                   final courseId = state.pathParameters['courseId']!;
                   final moduleId = state.pathParameters['moduleId']!;
                   final Map<String, dynamic>? extra = state.extra as Map<String, dynamic>?;
-
                   final userId = extra?['userId'] as String?;
                   final videoId = extra?['videoId'] as String?;
                   final videoUrl = extra?['videoUrl'] as String? ?? '';
-
-                  print('🔍 GoRouter Video Navigation:');
-                  print('  Course: $courseId');
-                  print('  Module: $moduleId');
-                  print('  Video: $videoId');
-                  print('  User: $userId');
-                  print('  URL: $videoUrl');
-
                   return MaterialPage(
                     key: state.pageKey,
                     child: CourseVideoScreen(
@@ -259,11 +352,8 @@ class AppRouter {
                   final courseId = state.pathParameters['courseId']!;
                   final moduleId = state.pathParameters['moduleId']!;
                   final assessmentId = state.pathParameters['assessmentId']!;
-                  final Map<String, dynamic>? extra = state.extra as Map<String, dynamic>?;
-                  final userId = extra?['userId'] as String?;
-
-                  print('🔍 GoRouter Assessment Navigation: course=$courseId, module=$moduleId, assessment=$assessmentId, user=$userId');
-
+                  // final Map<String, dynamic>? extra = state.extra as Map<String, dynamic>?;
+                  // final userId = extra?['userId'] as String?;
                   return MaterialPage(
                     key: state.pageKey,
                     child: ModuleAssessmentScreen(
@@ -317,7 +407,6 @@ class AppRouter {
                 name: 'dashboardPaymentResult',
                 builder: (context, state) => const PaymentResultScreen(),
               ),
-              // Phase 3: New payment method routes
               GoRoute(
                 path: 'payment/card',
                 name: 'dashboardPaymentCard',
@@ -353,14 +442,9 @@ class AppRouter {
                   final assessmentId = state.pathParameters['assessmentId']!;
                   final Map<String, dynamic>? extra = state.extra as Map<String, dynamic>?;
                   final userId = extra?['userId'] as String?;
-
-                  print('🔍 Router: Creating AssessmentQuestionScreen');
-                  print('   assessmentId: $assessmentId');
-                  print('   userId from extra: $userId');
-
                   return assessment.AssessmentQuestionScreen(
                     assessmentId: assessmentId,
-                    userId: userId,  // Pass it here
+                    userId: userId,
                   );
                 },
               ),
@@ -385,7 +469,6 @@ class AppRouter {
             path: 'placement',
             name: 'dashboardPlacement',
             redirect: (context, state) {
-              // Add eligibility check here in the future
               return null;
             },
             routes: [

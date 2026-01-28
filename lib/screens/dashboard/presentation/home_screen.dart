@@ -272,50 +272,35 @@ class _HomeScreenState extends State<HomeScreen> {
         appBar: AppBar(
           backgroundColor: Colors.transparent,
           elevation: 0,
-          title: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                'Welcome back,',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.white60,
-                  height: 1.2, // Better line spacing
-                ),
-              ),
-              Text(
-                userProvider.currentUser?.firstName ?? 'Student',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                  height: 1.0, // Better line spacing
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            // Notification Icon (only if it was there before - keeping minimal)
-            IconButton(
-              onPressed: () {},
-              icon: Container(
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Color.fromRGBO(255, 255, 255, 0.08),
-                  border: Border.all(color: Color.fromRGBO(255, 255, 255, 0.12)),
-                ),
-                child: const Padding(
-                  padding: EdgeInsets.all(8.0),
-                  child: Icon(
-                    Icons.notifications_none,
+          centerTitle: false, // Changed from true to false
+          title: Container(
+            width: double.infinity,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.start,
+              children: [
+                // "Welcome back," text on the left
+                Text(
+                  'Welcome back, ',
+                  style: TextStyle(
+                    fontSize: 16,
                     color: Colors.white,
-                    size: 20,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
-              ),
+                // User name with different styling
+                Text(
+                  userProvider.currentUser?.firstName ?? 'Student',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF38BDF8), // Sky blue color for name
+                  ),
+                ),
+              ],
             ),
-            // Profile Icon - Right side
+          ),
+          actions: [
+            // Profile Icon - Only profile icon on the right
             IconButton(
               onPressed: () => context.go('/dashboard/profile'),
               icon: Container(
@@ -697,99 +682,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(height: 24),
                   ],
-
-                  // Assessment Section
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Test Your Skills',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: () {
-                          context.push('/dashboard/assessment');
-                        },
-                        style: TextButton.styleFrom(
-                          padding: EdgeInsets.zero,
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        child: Text(
-                          'View All',
-                          style: TextStyle(
-                            color: const Color(0xFF38BDF8),
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  _buildGlassCard(
-                    child: InkWell(
-                      onTap: () {
-                        context.push('/dashboard/assessment');
-                      },
-                      borderRadius: BorderRadius.circular(16),
-                      child: Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Color.fromRGBO(56, 189, 248, 0.1),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: Color.fromRGBO(56, 189, 248, 0.3),
-                                ),
-                              ),
-                              child: Icon(
-                                Icons.quiz,
-                                color: const Color(0xFF38BDF8),
-                                size: 32,
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Take Assessments',
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Test your knowledge with skill assessments',
-                                    style: TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Icon(
-                              Icons.arrow_forward_ios,
-                              color: const Color(0xFF38BDF8),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 32),
                 ],
               ),
             ),

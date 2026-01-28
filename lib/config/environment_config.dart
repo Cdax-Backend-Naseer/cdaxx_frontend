@@ -23,8 +23,8 @@ class EnvironmentConfig {
   }
   
   static final Map<String, dynamic> developmentConfig = {
-    // 'baseUrl': 'https://cdax-assessment-hosting-f284.onrender.com',
-    'baseUrl': 'http://192.168.1.13:8080',
+    'baseUrl': 'https://cdaxxbackendnaseer-production.up.railway.app',
+    // 'baseUrl': 'http://192.168.1.6:8080',
     'apiVersion': '/api',
     'enableLogging': true,
     'enableDebugMode': true,
