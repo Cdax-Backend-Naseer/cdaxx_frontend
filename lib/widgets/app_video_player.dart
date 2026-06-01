@@ -1,11 +1,15 @@
 import 'dart:async';
 import 'dart:math';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import '../services/http_service.dart';
+import '../services/secure_storage_service.dart';
+import '../services/download_ledger_service.dart';
+import '../screens/courses/presentation/download_button.dart'; // ADD THIS IMPORT
 import '/config/environment_config.dart';
 
 class AppVideoPlayer extends StatefulWidget {
@@ -21,6 +25,9 @@ class AppVideoPlayer extends StatefulWidget {
     this.minimumWatchPercentage = 0.70,
     this.maximumSkipPercentage = 0.20,
     this.minimumValidSegmentDuration = 5,
+    this.videoTitle,      // ADD THIS
+    this.courseName,      // ADD THIS
+    this.moduleName,
   });
 
   final String videoUrl;
@@ -33,6 +40,9 @@ class AppVideoPlayer extends StatefulWidget {
   final double minimumWatchPercentage;
   final double maximumSkipPercentage;
   final int minimumValidSegmentDuration;
+  final String? videoTitle;   // ADD THIS
+  final String? courseName;   // ADD THIS
+  final String? moduleName;
 
   @override
   State<AppVideoPlayer> createState() => _AppVideoPlayerState();
@@ -119,7 +129,6 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
     _forwardJumps.clear();
     _lastProgressUpdateTime = null;
 
-    // Reset enhanced tracking
     _totalWatchTime = Duration.zero;
     _videoStartTime = null;
     _consecutiveForwardJumps = 0;
@@ -134,16 +143,10 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
     _lastSeekDetectionTime = null;
     _validWatchSegments = 0;
     _totalSegments = 0;
-
-    // Reset debouncing variables
     _isMarkingAsCompleted = false;
     _lastCompletionCheckTime = null;
-
-    // Reset warning tracking
     _warningShownForCurrentSession = false;
     _lastWarningTime = null;
-
-    // Reset session time
     _sessionStartTime = DateTime.now();
 
     debugPrint('✅ Tracking reset complete');
@@ -190,7 +193,40 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
           });
         }
       } else {
-        final video = VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl));
+        VideoPlayerController? video;
+        bool isLocalFilePlayed = false;
+
+        if (widget.videoId != null && !kIsWeb) {
+          final DownloadLedgerService ledgerService = DownloadLedgerService();
+          bool isLocalValid = await ledgerService.isVideoValid(widget.videoId!);
+
+          if (isLocalValid) {
+            final ledger = await ledgerService.getLedger();
+            final String secureFilePath = ledger[widget.videoId!]['filePath'];
+            final File localFile = File(secureFilePath);
+
+            if (await localFile.exists()) {
+              debugPrint('🔒 Playing from secure offline storage');
+              video = VideoPlayerController.file(localFile);
+              isLocalFilePlayed = true;
+            }
+          }
+        }
+
+        if (!isLocalFilePlayed) {
+          final headers = await _getVideoHeaders();
+          debugPrint('🎬 Streaming from network');
+
+          video = VideoPlayerController.networkUrl(
+            Uri.parse(widget.videoUrl),
+            httpHeaders: headers,
+          );
+        }
+
+        if (video == null) {
+          throw Exception("Failed to initialize video player");
+        }
+
         await video.initialize();
 
         _actualVideoDuration = video.value.duration;
@@ -231,8 +267,41 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
     }
   }
 
+  Future<Map<String, String>> _getVideoHeaders() async {
+    final headers = <String, String>{
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      'Accept': 'video/mp4,video/webm,video/*;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Accept-Encoding': 'identity',
+      'Connection': 'keep-alive',
+    };
+
+    final bool isGcsUrl = widget.videoUrl.contains('commondatastorage.googleapis.com') ||
+        widget.videoUrl.contains('storage.googleapis.com') ||
+        widget.videoUrl.contains('gtv-videos-bucket');
+
+    if (isGcsUrl) {
+      headers['Referer'] = 'https://your-app-domain.com/';
+      headers['Origin'] = 'https://your-app-domain.com';
+      debugPrint('🎬 Public video - no auth token');
+      headers.remove('Authorization');
+    } else {
+      try {
+        final token = await SecureStorageService.instance.getJWTToken();
+        if (token != null && token.isNotEmpty) {
+          headers['Authorization'] = 'Bearer $token';
+          debugPrint('🔐 Added auth token for protected video');
+        }
+      } catch (e) {
+        debugPrint('⚠️ Could not get auth token: $e');
+      }
+    }
+
+    return headers;
+  }
+
   void _startEnhancedTracking(VideoPlayerController controller) {
-    debugPrint('🎯 Starting fresh tracking session');
+    debugPrint('🎯 Starting tracking session');
     _videoStartTime = DateTime.now();
     _sessionStartTime = DateTime.now();
 
@@ -377,7 +446,7 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
       final isWatchingContinuously = isPlaying && !_isSeeking;
 
       if (hasWatchedSignificantly && hasNoRecentJumps && isWatchingContinuously) {
-        debugPrint('✅ User resumed proper watching - resetting suspicion');
+        debugPrint('✅ User resumed proper watching');
         _suspectCheating = false;
         _warningShownForCurrentSession = false;
       }
@@ -394,7 +463,7 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
 
     if (newSuspiciousBehavior && !_suspectCheating) {
       _suspectCheating = true;
-      debugPrint('⚠️ New suspicious behavior detected');
+      debugPrint('⚠️ Suspicious behavior detected');
     }
   }
 
@@ -405,7 +474,7 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
     final isPlaying = controller.value.isPlaying;
 
     if (!isPlaying && currentPosition.inSeconds >= (_actualVideoDuration?.inSeconds ?? 0) * 0.99) {
-      debugPrint('🎬 Video ended detected at ${currentPosition.inSeconds}s');
+      debugPrint('🎬 Video ended');
       _trackPlaybackSegments(currentPosition, false);
       _checkForCompletion(currentPosition, false);
     }
@@ -437,7 +506,7 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
       }
 
       if (jump.inSeconds <= -10) {
-        debugPrint('⏪ Rewind detected: ${jump.abs().inSeconds}s');
+        debugPrint('⏪ Rewind detected');
         _consecutiveForwardJumps = 0;
         if (_warningShownForCurrentSession) {
           _warningShownForCurrentSession = false;
@@ -479,7 +548,7 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
     final minimumSessionTime = max(videoDuration.inSeconds * 0.8, 5.0).toInt();
 
     if (timeSinceSessionStart < minimumSessionTime) {
-      debugPrint('⏰ Not enough session time: $timeSinceSessionStart/$minimumSessionTime seconds');
+      debugPrint('⏰ Not enough session time');
       return;
     }
 
@@ -511,10 +580,6 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
             (_totalSegments == 0 || _validWatchSegments >= max(1, _totalSegments * 0.3)) &&
             (isPlaying || currentPosition.inSeconds >= videoDuration.inSeconds * 0.98) &&
             timeSinceSessionStart >= minimumSessionTime;
-
-    debugPrint('📊 Completion Check:');
-    debugPrint('   ├─ Requirements met: $requirementsMet');
-    debugPrint('   ├─ Suspect cheating: $_suspectCheating');
 
     if (requirementsMet) {
       _markVideoAsCompleted();
@@ -641,7 +706,6 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
     }
   }
 
-  // FIXED: Send progress updates with isCompleted flag when video is completed
   Future<void> _sendProgressUpdate() async {
     if (widget.videoId == null || widget.userId == null) return;
 
@@ -663,7 +727,6 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
           ? totalWatchedBlocks / totalPossibleBlocks
           : 0.0;
 
-      // Calculate progress percentage based on video duration
       final progressPercentage = _actualVideoDuration != null && _actualVideoDuration!.inSeconds > 0
           ? min(currentPosition.inSeconds / _actualVideoDuration!.inSeconds * 100, 100.0)
           : 0.0;
@@ -679,9 +742,9 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
         'watchedBlocks': totalWatchedBlocks,
         'suspectCheating': _suspectCheating,
         'currentlySeeking': _isSeeking,
-        'progressPercentage': progressPercentage, // NEW: Add progress percentage
-        'isCompleted': _videoMarkedAsCompleted, // NEW: Add completion status
-        'completedAt': _videoMarkedAsCompleted ? DateTime.now().toIso8601String() : null, // NEW: Completion timestamp
+        'progressPercentage': progressPercentage,
+        'isCompleted': _videoMarkedAsCompleted,
+        'completedAt': _videoMarkedAsCompleted ? DateTime.now().toIso8601String() : null,
         'playbackSegments': _playbackSegments.map((segment) => ({
           'startPosition': (segment['startPosition'] as Duration).inSeconds,
           'endPosition': (segment['endPosition'] as Duration?)?.inSeconds,
@@ -699,25 +762,14 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
 
       if (response.isSuccess) {
         debugPrint('📊 Progress updated: ${progressPercentage.toStringAsFixed(1)}%');
-      } else {
-        debugPrint('❌ Progress update failed: ${response.errorMessage}');
       }
     } catch (e) {
       debugPrint('❌ Error updating progress: $e');
     }
   }
 
-  // FIXED: Send final 100% progress update before marking as completed
   Future<void> _markVideoAsCompleted() async {
-    if (_videoMarkedAsCompleted) {
-      debugPrint('⏭️ Video already marked as completed - skipping');
-      return;
-    }
-
-    if (_isMarkingAsCompleted) {
-      debugPrint('⏭️ Already in process of marking video as completed - skipping');
-      return;
-    }
+    if (_videoMarkedAsCompleted || _isMarkingAsCompleted) return;
 
     _isMarkingAsCompleted = true;
 
@@ -732,26 +784,23 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
         return;
       }
 
-      // STEP 1: Send FINAL progress update with 100% completion
       if (_actualVideoDuration != null) {
-        debugPrint('📤 Sending final 100% progress update...');
-
         final totalPossibleBlocks = (_actualVideoDuration!.inSeconds / 10).ceil();
 
         final finalProgressData = {
           'userId': userId,
-          'watchedSeconds': _actualVideoDuration!.inSeconds, // Full duration
-          'lastPositionSeconds': _actualVideoDuration!.inSeconds, // At end
+          'watchedSeconds': _actualVideoDuration!.inSeconds,
+          'lastPositionSeconds': _actualVideoDuration!.inSeconds,
           'forwardJumpsCount': _forwardButtonCount,
           'consecutiveJumps': _consecutiveForwardJumps,
           'totalWatchTime': _totalWatchTime.inSeconds,
-          'watchQuality': 1.0, // 100% quality
-          'watchedBlocks': totalPossibleBlocks, // All blocks
-          'suspectCheating': false, // Reset for completion
+          'watchQuality': 1.0,
+          'watchedBlocks': totalPossibleBlocks,
+          'suspectCheating': false,
           'currentlySeeking': false,
-          'progressPercentage': 100.0, // 100% progress
-          'isCompleted': true, // Mark as completed
-          'completedAt': DateTime.now().toIso8601String(), // Completion timestamp
+          'progressPercentage': 100.0,
+          'isCompleted': true,
+          'completedAt': DateTime.now().toIso8601String(),
           'playbackSegments': _playbackSegments.map((segment) => ({
             'startPosition': (segment['startPosition'] as Duration).inSeconds,
             'endPosition': (segment['endPosition'] as Duration?)?.inSeconds,
@@ -761,30 +810,16 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
           })).toList(),
         };
 
-        final progressResponse = await _httpService.post<Map<String, dynamic>>(
+        await _httpService.post<Map<String, dynamic>>(
           '/api/videos/$videoId/progress',
               (data) => data as Map<String, dynamic>,
           body: finalProgressData,
         );
-
-        if (progressResponse.isSuccess) {
-          debugPrint('✅ Final 100% progress update sent successfully');
-        } else {
-          debugPrint('⚠️ Final progress update failed, but continuing with completion...');
-        }
       }
-
-      // STEP 2: Mark video as completed in the system
-      debugPrint('📤 Marking video as completed in system...');
 
       String url = '/api/videos/$videoId/complete?userId=$userId';
-
-      if (courseId != null) {
-        url += '&courseId=$courseId';
-      }
-      if (moduleId != null) {
-        url += '&moduleId=$moduleId';
-      }
+      if (courseId != null) url += '&courseId=$courseId';
+      if (moduleId != null) url += '&moduleId=$moduleId';
 
       final response = await _httpService.post<Map<String, dynamic>>(
         url,
@@ -792,78 +827,23 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
         body: {},
       );
 
-      if (response.isSuccess && response.data != null) {
-        final responseData = response.data!;
-        if (responseData['success'] == true) {
-          debugPrint('✅ Video $videoId marked as completed in system!');
-          _videoMarkedAsCompleted = true;
-
-          // Clear any warnings since video is now complete
-          ScaffoldMessenger.of(context).clearSnackBars();
-
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Video completed! Progress saved.'),
-                backgroundColor: Colors.green,
-                duration: Duration(seconds: 2),
-              ),
-            );
-          }
-
-          // Call completion callback
-          widget.onVideoCompleted?.call();
-
-          // Send one more progress update to ensure backend has latest state
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            _sendProgressUpdate();
-          });
-
-        } else {
-          debugPrint('❌ API returned error: ${responseData['error']}');
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Error: ${responseData['error']}'),
-                backgroundColor: Colors.orange,
-              ),
-            );
-          }
-        }
-      } else {
-        debugPrint('❌ Failed to mark video complete: ${response.errorMessage}');
-
-        if (response.statusCode == 400) {
-          final responseBody = response.data;
-          if (responseBody?['error']?.contains('already completed') ?? false ||
-              responseBody?['error']?.contains('rollback-only') ?? false) {
-            debugPrint('ℹ️ Video already completed or transaction issue');
-            _videoMarkedAsCompleted = true;
-            widget.onVideoCompleted?.call();
-            _isMarkingAsCompleted = false;
-            return;
-          }
-        }
+      if (response.isSuccess && response.data?['success'] == true) {
+        debugPrint('✅ Video marked as completed!');
+        _videoMarkedAsCompleted = true;
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Failed to save progress: ${response.errorMessage}'),
-              backgroundColor: Colors.red,
+            const SnackBar(
+              content: Text('Video completed! Progress saved.'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
             ),
           );
         }
+        widget.onVideoCompleted?.call();
       }
     } catch (e) {
       debugPrint('❌ Error marking video complete: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Network error: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
     } finally {
       _isMarkingAsCompleted = false;
     }
@@ -910,18 +890,6 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
               _buildStatRow('Video Status', _videoMarkedAsCompleted ? 'COMPLETED ✅' : 'IN PROGRESS'),
               if (_sessionStartTime != null)
                 _buildStatRow('Session Time', '${DateTime.now().difference(_sessionStartTime!).inSeconds}s'),
-              const SizedBox(height: 10),
-              const Text(
-                'Completion Status:',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 5),
-              _buildTip(_videoMarkedAsCompleted
-                  ? '✅ Video is marked as completed in system'
-                  : '⏳ Video is still in progress'),
-              _buildTip('Progress sent to backend: $progressPercentage%'),
-              if (_videoMarkedAsCompleted)
-                _buildTip('🎉 Streak should update on next calculation'),
             ],
           ),
         ),
@@ -930,16 +898,6 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
             onPressed: () => Navigator.pop(context),
             child: const Text('CLOSE'),
           ),
-          if (_suspectCheating)
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-                _suspectCheating = false;
-                _warningShownForCurrentSession = false;
-                ScaffoldMessenger.of(context).clearSnackBars();
-              },
-              child: const Text('RESET WARNING'),
-            ),
         ],
       ),
     );
@@ -947,18 +905,13 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
 
   Widget _buildStatRow(String label, String value) {
     return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 2),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                label,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-            Text(value),
-          ],
-        )
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Expanded(child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold))),
+          Text(value),
+        ],
+      ),
     );
   }
 
@@ -970,15 +923,11 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
   }
 
   void _dispose() {
-    debugPrint('♻️ Disposing video player and tracking');
+    debugPrint('♻️ Disposing video player');
     _playbackTimer?.cancel();
-    _playbackTimer = null;
     _chewieCtrl?.dispose();
     _videoCtrl?.dispose();
     _youtubeCtrl?.dispose();
-    _chewieCtrl = null;
-    _videoCtrl = null;
-    _youtubeCtrl = null;
     _isInitialized = false;
     _initError = false;
   }
@@ -989,8 +938,33 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
     super.dispose();
   }
 
+  // ==================== BUILD METHOD WITH DOWNLOAD BUTTON ====================
+
   @override
   Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.videoTitle ?? 'Video Player'),
+        backgroundColor: Colors.black,
+        actions: [
+          // Download Button - Only show if videoId and courseId are provided
+          if (widget.videoId != null && widget.courseId != null)
+            DownloadButton(
+              videoId: widget.videoId!,
+              videoUrl: widget.videoUrl,
+              courseId: widget.courseId!,
+              userId: widget.userId,
+              videoTitle: widget.videoTitle ?? 'Video ${widget.videoId}',
+              courseName: widget.courseName ?? 'Course ${widget.courseId}',
+              moduleName: widget.moduleName ?? 'Module',
+            ),
+        ],
+      ),
+      body: _buildVideoBody(),
+    );
+  }
+
+  Widget _buildVideoBody() {
     if (_initError) return _buildErrorState();
     if (!_isInitialized) return _buildLoadingState();
 
@@ -1011,7 +985,7 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
 
   Widget _buildErrorState() {
     return Container(
-      height: 200,
+      height: double.infinity,
       color: Colors.black12,
       child: const Center(
         child: Column(
@@ -1031,7 +1005,7 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
 
   Widget _buildLoadingState() {
     return Container(
-      height: 200,
+      height: double.infinity,
       color: Colors.black12,
       child: const Center(child: CircularProgressIndicator()),
     );
@@ -1040,7 +1014,7 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
   Widget _buildWebYouTubePlayer() {
     return Container(
       width: double.infinity,
-      height: 280,
+      height: double.infinity,
       decoration: BoxDecoration(
         color: Colors.black,
         borderRadius: BorderRadius.circular(12),
@@ -1089,9 +1063,11 @@ class _AppVideoPlayerState extends State<AppVideoPlayer> {
         ? _videoCtrl!.value.aspectRatio
         : 16 / 9;
 
-    return AspectRatio(
-      aspectRatio: aspect,
-      child: Chewie(controller: _chewieCtrl!),
+    return Center(
+      child: AspectRatio(
+        aspectRatio: aspect,
+        child: Chewie(controller: _chewieCtrl!),
+      ),
     );
   }
 }

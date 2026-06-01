@@ -20,7 +20,7 @@ class AssessmentProvider extends ChangeNotifier {
   final AssessmentService _assessmentService = AssessmentService();
   UserProvider? _userProvider;
 
-  // 🆕 ADD THIS: Manual user ID storage
+  // Manual user ID storage
   int? _manualUserId;
 
   // Initialize with UserProvider
@@ -28,7 +28,7 @@ class AssessmentProvider extends ChangeNotifier {
     _userProvider = userProvider;
   }
 
-  // 🆕 ADD THIS: Set manual user ID
+  // Set manual user ID
   void setManualUserId(String userId) {
     _manualUserId = int.tryParse(userId);
     print('🎯 PROVIDER: Manual user ID set to: $_manualUserId');
@@ -58,7 +58,7 @@ class AssessmentProvider extends ChangeNotifier {
   bool get isCurrentQuestionAnswered =>
       currentQuestion != null && _userAnswers.containsKey(currentQuestion!.id);
 
-  // 🆕 UPDATED: Helper method to get userId as int
+  // Helper method to get userId as int
   int? get _userIdAsInt {
     // First try manual user ID
     if (_manualUserId != null) {
@@ -151,6 +151,7 @@ class AssessmentProvider extends ChangeNotifier {
       _setLoading(false);
     }
   }
+
   /// Start assessment with explicit user ID
   Future<void> startAssessmentWithUserId(int assessmentId, int userId) async {
     print('🎯 startAssessmentWithUserId called');
@@ -241,12 +242,7 @@ class AssessmentProvider extends ChangeNotifier {
       print('   User answers count: ${_userAnswers.length}');
       print('   User answers: $_userAnswers');
 
-      // Prepare answers for submission
-      print('   Assessment ID: $assessmentId');
-      print('   User answers count: ${_userAnswers.length}');
-      print('   User answers: $_userAnswers');
-
-// 🆕 DEBUG: Check current questions and their correct answers
+      // DEBUG: Check current questions and their correct answers
       print('   Current questions loaded: ${_currentQuestions.length}');
       for (final question in _currentQuestions) {
         final qId = int.tryParse(question.id);
@@ -261,7 +257,7 @@ class AssessmentProvider extends ChangeNotifier {
         }
       }
 
-// Prepare answers for submission
+      // Prepare answers for submission
       final Map<int, String> answers = {};
       for (final entry in _userAnswers.entries) {
         // Parse question ID from string to int
@@ -273,7 +269,7 @@ class AssessmentProvider extends ChangeNotifier {
         if (questionId != null && entry.value.answer != null) {
           String answerString = entry.value.answer.toString();
 
-          // 🆕 CONVERT NUMERIC ANSWERS TO LETTERS
+          // CONVERT NUMERIC ANSWERS TO LETTERS
           print('     🔍 Raw answer: $answerString');
 
           // Format 1: Try as letter directly (A, B, C, D)
@@ -316,9 +312,6 @@ class AssessmentProvider extends ChangeNotifier {
           print('     ❌ Skipped - questionId: $questionId, answer: ${entry.value.answer}');
         }
       }
-
-      print('   Final answers map for submission: $answers');
-      print('   Answers map size: ${answers.length}');
 
       print('   Final answers map for submission: $answers');
       print('   Answers map size: ${answers.length}');
@@ -421,7 +414,6 @@ class AssessmentProvider extends ChangeNotifier {
   }
 
   /// Submit answer for current question
-  /// Submit answer for current question
   void submitAnswer(dynamic answer) {
     if (currentQuestion == null) return;
 
@@ -511,6 +503,11 @@ class AssessmentProvider extends ChangeNotifier {
     return _userAnswers[questionId];
   }
 
+  /// NEW: Check if a specific question is answered
+  bool isQuestionAnswered(String questionId) {
+    return _userAnswers.containsKey(questionId);
+  }
+
   /// Check if all questions are answered
   bool get areAllQuestionsAnswered =>
       _userAnswers.length == _currentQuestions.length;
@@ -538,15 +535,20 @@ class AssessmentProvider extends ChangeNotifier {
   }
 }
 
-// Helper class for user answers
-class UserAnswer {
-  final String questionId;
-  final dynamic answer;
-  final DateTime timestamp;
-
-  UserAnswer({
-    required this.questionId,
-    required this.answer,
-    required this.timestamp,
-  });
-}
+// // UserAnswer class - accessible from other files
+// class UserAnswer {
+//   final String questionId;
+//   final dynamic answer;
+//   final DateTime timestamp;
+//
+//   UserAnswer({
+//     required this.questionId,
+//     required this.answer,
+//     required this.timestamp,
+//   });
+//
+//   @override
+//   String toString() {
+//     return 'UserAnswer(questionId: $questionId, answer: $answer, timestamp: $timestamp)';
+//   }
+// }

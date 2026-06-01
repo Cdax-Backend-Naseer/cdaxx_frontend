@@ -44,7 +44,7 @@ class SupportScreen extends StatelessWidget {
       ['How to reset password?', 'Use Forgot Password on login.'],
       ['Can I learn offline?', 'Offline downloads coming soon.'],
       ['How to report an issue?', 'Use the contact form below.'],
-      ['What is subscription?', 'Unlocks all premium modules.'],
+      ['What is subscription?', 'Subscription means buying of a course and making its modules and videos available .'],
       ['Refund policy?', 'Contact support within 14 days.'],
     ];
 

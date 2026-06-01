@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:youtube_player_flutter/youtube_player_flutter.dart'; // Add this import
-
+import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import '../../../providers/dashboard_provider.dart';
 import '../../../widgets/app_video_player.dart';
 
@@ -14,6 +13,9 @@ class CourseVideoScreen extends StatefulWidget {
     this.courseId,
     this.moduleId,
     this.userId,
+    this.videoTitle,      // ADD THIS
+    this.courseName,      // ADD THIS
+    this.moduleName,  // ADD THIS
   });
 
   final String videoUrl;
@@ -21,6 +23,9 @@ class CourseVideoScreen extends StatefulWidget {
   final String? courseId;
   final String? moduleId;
   final String? userId;
+  final String? videoTitle;    // ADD THIS
+  final String? courseName;    // ADD THIS
+  final String? moduleName;
 
   @override
   State<CourseVideoScreen> createState() => _CourseVideoScreenState();
@@ -37,7 +42,9 @@ class _CourseVideoScreenState extends State<CourseVideoScreen> {
     print('   │  ├─ videoId: ${widget.videoId}');
     print('   │  ├─ courseId: ${widget.courseId}');
     print('   │  ├─ moduleId: ${widget.moduleId}');
-    print('   │  └─ userId (from nav): ${widget.userId}');
+    print('   │  ├─ userId (from nav): ${widget.userId}');
+    print('   │  ├─ videoTitle: ${widget.videoTitle}');      // ADD THIS
+    print('   │  └─ courseName: ${widget.courseName}');      // ADD THIS
 
     // Test YouTube URL conversion
     if (widget.videoUrl.isNotEmpty) {
@@ -161,12 +168,10 @@ class _CourseVideoScreenState extends State<CourseVideoScreen> {
                 const SizedBox(height: 20),
                 ElevatedButton(
                   onPressed: () {
-                    // Try to get fresh data from provider
                     print('🔄 Retrying with provider data...');
                     print('   Provider userId: $providerUserId');
 
                     if (providerUserId != '0') {
-                      // Try again with provider userId
                       Navigator.of(context).pop();
                     } else {
                       print('❌ Provider also has no userId');
@@ -190,7 +195,6 @@ class _CourseVideoScreenState extends State<CourseVideoScreen> {
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () {
-            // Force portrait orientation before navigating back
             SystemChrome.setPreferredOrientations([
               DeviceOrientation.portraitUp,
               DeviceOrientation.portraitDown,
@@ -199,7 +203,6 @@ class _CourseVideoScreenState extends State<CourseVideoScreen> {
           },
         ),
         actions: [
-          // Debug button
           IconButton(
             onPressed: () {
               showDialog(
@@ -217,6 +220,8 @@ class _CourseVideoScreenState extends State<CourseVideoScreen> {
                         Text('Module ID: ${widget.moduleId}'),
                         Text('User ID (nav): ${widget.userId}'),
                         Text('User ID (final): $userId'),
+                        Text('Video Title: ${widget.videoTitle}'),      // ADD THIS
+                        Text('Course Name: ${widget.courseName}'),      // ADD THIS
                         const SizedBox(height: 16),
                         const Text('YouTube Analysis:', style: TextStyle(fontWeight: FontWeight.bold)),
                         Text('YouTube ID: ${YoutubePlayer.convertUrlToId(widget.videoUrl)}'),
@@ -246,9 +251,11 @@ class _CourseVideoScreenState extends State<CourseVideoScreen> {
               courseId: widget.courseId,
               moduleId: widget.moduleId,
               userId: userId,
+              videoTitle: widget.videoTitle ?? 'Video ${widget.videoId ?? ""}',
+              courseName: widget.courseName ?? 'Course ${widget.courseId ?? ""}',
+              moduleName: widget.moduleName ?? 'Module',  // ADD THIS
               onVideoCompleted: () {
                 print('🎥 Video completed in CourseVideoScreen');
-                // Optional: Navigate back or show completion message
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                     content: Text('Video completed!'),

@@ -9,8 +9,8 @@ import '../../services/assessment_service.dart';
 import 'widgets/question_card.dart';
 import 'widgets/progress_bar.dart';
 
-// Import the UserAnswer class from the correct location
-import '../../models/assessment/question_model.dart' as question_models;
+// Import the correct UserAnswer class from AssessmentProvider
+import '../../models/assessment/question_model.dart';
 
 class AssessmentQuestionScreen extends StatefulWidget {
   final String assessmentId;
@@ -30,11 +30,12 @@ class _AssessmentQuestionScreenState extends State<AssessmentQuestionScreen> {
   Timer? _timer;
   bool _isSubmitting = false;
   final AssessmentService _assessmentService = AssessmentService();
+  final ValueNotifier<bool> _isCurrentQuestionAnswered = ValueNotifier<bool>(false);
 
   @override
   void initState() {
     super.initState();
-    print('🎯 REAL AssessmentQuestionScreen loaded');
+    print('🎯 AssessmentQuestionScreen loaded');
     print('📝 Assessment ID: ${widget.assessmentId}');
     print('👤 Passed User ID: ${widget.userId}');
 
@@ -47,8 +48,8 @@ class _AssessmentQuestionScreenState extends State<AssessmentQuestionScreen> {
   void dispose() {
     print('🛑 AssessmentQuestionScreen disposing...');
     _timer?.cancel();
+    _isCurrentQuestionAnswered.dispose();
 
-    // Also stop timer in provider if still running
     if (mounted) {
       try {
         final assessmentProvider = Provider.of<AssessmentProvider>(context, listen: false);
@@ -84,20 +85,19 @@ class _AssessmentQuestionScreenState extends State<AssessmentQuestionScreen> {
     }
 
     try {
-      // 🆕 Use the startAssessmentWithUserId method directly
       final userId = _getUserId();
 
       if (userId != null) {
         print('🎯 Starting assessment with userId: $userId, assessmentId: $assessmentId');
         await assessmentProvider.startAssessmentWithUserId(assessmentId, userId);
       } else {
-        // Fallback to original method
         print('⚠️ No userId found, using original startAssessment');
         await assessmentProvider.startAssessment(assessmentId);
       }
 
       if (assessmentProvider.currentAssessment != null && mounted) {
         _startTimer();
+        _updateCurrentQuestionAnsweredState(assessmentProvider);
       }
     } catch (e) {
       print('❌ Error starting assessment: $e');
@@ -113,9 +113,7 @@ class _AssessmentQuestionScreenState extends State<AssessmentQuestionScreen> {
     }
   }
 
-  // Helper method to get userId as int
   int? _getUserId() {
-    // First try the passed userId
     if (widget.userId != null) {
       final userIdInt = int.tryParse(widget.userId!);
       if (userIdInt != null) {
@@ -124,7 +122,6 @@ class _AssessmentQuestionScreenState extends State<AssessmentQuestionScreen> {
       }
     }
 
-    // Then try UserProvider
     try {
       final userProvider = Provider.of<UserProvider>(context, listen: false);
       final userId = userProvider.currentUser?.id;
@@ -161,6 +158,16 @@ class _AssessmentQuestionScreenState extends State<AssessmentQuestionScreen> {
         _submitAssessment();
       }
     });
+  }
+
+  void _updateCurrentQuestionAnsweredState(AssessmentProvider provider) {
+    if (provider.currentQuestion != null) {
+      final isAnswered = provider.isQuestionAnswered(provider.currentQuestion!.id);
+      print('🔍 Question ${provider.currentQuestionIndex + 1} answered state: $isAnswered');
+      _isCurrentQuestionAnswered.value = isAnswered;
+    } else {
+      _isCurrentQuestionAnswered.value = false;
+    }
   }
 
   @override
@@ -324,9 +331,11 @@ class _AssessmentQuestionScreenState extends State<AssessmentQuestionScreen> {
                     padding: const EdgeInsets.all(16.0),
                     child: QuestionCard(
                       question: provider.currentQuestion!,
-                      userAnswer: _convertUserAnswer(provider),
+                      userAnswer: _getUserAnswer(provider),
                       onAnswerChanged: (answer) {
+                        print('🔴 Answer selected: $answer');
                         provider.submitAnswer(answer);
+                        _isCurrentQuestionAnswered.value = true;
                       },
                     ),
                   ),
@@ -356,17 +365,10 @@ class _AssessmentQuestionScreenState extends State<AssessmentQuestionScreen> {
     );
   }
 
-  question_models.UserAnswer? _convertUserAnswer(AssessmentProvider provider) {
+  // Fix: Use UserAnswer from AssessmentProvider instead of question_models
+  UserAnswer? _getUserAnswer(AssessmentProvider provider) {
     if (provider.currentQuestion == null) return null;
-
-    final providerAnswer = provider.getAnswerForQuestion(provider.currentQuestion!.id);
-    if (providerAnswer == null) return null;
-
-    return question_models.UserAnswer(
-      questionId: providerAnswer.questionId,
-      answer: providerAnswer.answer,
-      timestamp: providerAnswer.timestamp,
-    );
+    return provider.getAnswerForQuestion(provider.currentQuestion!.id);
   }
 
   Widget _buildNavigationButtons(AssessmentProvider provider) {
@@ -387,25 +389,31 @@ class _AssessmentQuestionScreenState extends State<AssessmentQuestionScreen> {
 
         Expanded(
           flex: 2,
-          child: _isSubmitting
-              ? const Center(child: CircularProgressIndicator())
-              : FilledButton.icon(
-            onPressed: provider.isCurrentQuestionAnswered
-                ? () {
-              print('🔴 SUBMIT BUTTON PRESSED!');
-              _handleNext(provider);
-            }
-                : null,
-            icon: Icon(
-              provider.hasNextQuestion
-                  ? Icons.arrow_forward
-                  : Icons.check,
-            ),
-            label: Text(
-              provider.hasNextQuestion
-                  ? 'Next'
-                  : 'Submit Assessment',
-            ),
+          child: ValueListenableBuilder<bool>(
+            valueListenable: _isCurrentQuestionAnswered,
+            builder: (context, isAnswered, child) {
+              print('🔄 Navigation button rebuild - isAnswered: $isAnswered');
+              return _isSubmitting
+                  ? const Center(child: CircularProgressIndicator())
+                  : FilledButton.icon(
+                onPressed: isAnswered
+                    ? () {
+                  print('🔴 NEXT/SUBMIT BUTTON PRESSED!');
+                  _handleNext(provider);
+                }
+                    : null,
+                icon: Icon(
+                  provider.hasNextQuestion
+                      ? Icons.arrow_forward
+                      : Icons.check,
+                ),
+                label: Text(
+                  provider.hasNextQuestion
+                      ? 'Next'
+                      : 'Submit Assessment',
+                ),
+              );
+            },
           ),
         ),
       ],
@@ -419,6 +427,7 @@ class _AssessmentQuestionScreenState extends State<AssessmentQuestionScreen> {
     if (provider.hasNextQuestion) {
       print('   Going to next question');
       provider.goToNextQuestion();
+      _updateCurrentQuestionAnsweredState(provider);
     } else {
       print('   Showing submit confirmation');
       _showSubmitConfirmation();
@@ -539,8 +548,6 @@ class _AssessmentQuestionScreenState extends State<AssessmentQuestionScreen> {
       assessmentProvider.stopTimer();
 
       print('📤 Step 1: Getting user answers before submission...');
-
-      // DEBUG: Check what answers are being submitted
       final userAnswers = assessmentProvider.userAnswers;
       print('   User answers count: ${userAnswers.length}');
 
@@ -549,7 +556,6 @@ class _AssessmentQuestionScreenState extends State<AssessmentQuestionScreen> {
       }
 
       print('📤 Step 2: Calling assessmentProvider.submitAssessment()...');
-
       final Map<String, dynamic> result = await assessmentProvider.submitAssessment();
 
       print('📥 Step 3: Received result from provider:');
@@ -563,7 +569,6 @@ class _AssessmentQuestionScreenState extends State<AssessmentQuestionScreen> {
       final int totalMarks = (result['totalMarks'] ?? 0).toInt();
       final String message = result['message'] ?? '';
 
-      // NEW: Check detailed score breakdown
       final List<dynamic>? questionResults = result['questionResults'] as List<dynamic>?;
       if (questionResults != null) {
         print('📊 Question-by-question results:');
@@ -593,9 +598,7 @@ class _AssessmentQuestionScreenState extends State<AssessmentQuestionScreen> {
         return;
       }
 
-      // Show the result in dialog FIRST
       await _showResultInDialog(
-        result: result,
         passed: passed,
         percentage: percentage,
         obtainedMarks: obtainedMarks,
@@ -605,18 +608,16 @@ class _AssessmentQuestionScreenState extends State<AssessmentQuestionScreen> {
         questionResults: questionResults,
       );
 
-      // After dialog closes, navigate back
       print('   Navigating back after dialog closes...');
 
       if (mounted) {
-        // Add a small delay for better UX
         await Future.delayed(const Duration(milliseconds: 300));
 
         if (Navigator.canPop(context)) {
-          context.pop(); // Go back to dashboard
+          context.pop();
           print('✅ Successfully navigated back');
         } else {
-          context.go('/dashboard'); // Fallback to dashboard
+          context.go('/dashboard');
           print('✅ Fallback: Went to dashboard');
         }
       }
@@ -649,7 +650,6 @@ class _AssessmentQuestionScreenState extends State<AssessmentQuestionScreen> {
   }
 
   Future<void> _showResultInDialog({
-    required Map<String, dynamic> result,
     required bool passed,
     required double percentage,
     required int obtainedMarks,
@@ -719,7 +719,6 @@ class _AssessmentQuestionScreenState extends State<AssessmentQuestionScreen> {
                 ),
               ),
 
-              // NEW: Show question results if available
               if (questionResults != null && questionResults.isNotEmpty) ...[
                 const SizedBox(height: 16),
                 const Text(
@@ -795,7 +794,7 @@ class _AssessmentQuestionScreenState extends State<AssessmentQuestionScreen> {
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.lock_open, color: Colors.green),
+                      const Icon(Icons.lock_open, color: Colors.green),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
@@ -816,7 +815,7 @@ class _AssessmentQuestionScreenState extends State<AssessmentQuestionScreen> {
         actions: [
           FilledButton(
             onPressed: () {
-              Navigator.of(context).pop(); // Close dialog
+              Navigator.of(context).pop();
             },
             child: const Text('Back to Dashboard'),
           ),

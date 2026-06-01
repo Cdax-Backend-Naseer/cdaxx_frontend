@@ -333,6 +333,9 @@ class AppRouter {
                   final userId = extra?['userId'] as String?;
                   final videoId = extra?['videoId'] as String?;
                   final videoUrl = extra?['videoUrl'] as String? ?? '';
+                  final videoTitle = extra?['videoTitle'] as String?;      // ADD THIS
+                  final courseTitle = extra?['courseTitle'] as String?;    // ADD THIS
+                  final moduleName = extra?['moduleName'] as String?;
                   return MaterialPage(
                     key: state.pageKey,
                     child: CourseVideoScreen(
@@ -341,11 +344,13 @@ class AppRouter {
                       courseId: courseId,
                       moduleId: moduleId,
                       userId: userId,
+                      videoTitle: videoTitle,      // ADD THIS
+                      courseName: courseTitle,     // ADD THIS
+                      moduleName: moduleName,
                     ),
                   );
                 },
-              ),
-              GoRoute(
+              ),              GoRoute(
                 path: 'assessment/:assessmentId',
                 name: 'dashboardModuleAssessment',
                 pageBuilder: (context, state) {

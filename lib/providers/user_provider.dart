@@ -642,7 +642,7 @@ class UserProvider with ChangeNotifier {
       return _storedEmail;
     }
     // Fallback to currentUser email
-    if (_currentUser?.email != null && _currentUser!.email!.isNotEmpty) {
+    if (_currentUser?.email != null && _currentUser!.email.isNotEmpty) {
       return _currentUser!.email;
     }
     return null;

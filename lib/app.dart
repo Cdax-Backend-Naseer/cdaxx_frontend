@@ -3,6 +3,7 @@ import 'package:cdax_app/providers/favorite_provider.dart';
 import 'package:cdax_app/providers/module_provider.dart';
 import 'package:cdax_app/services/cart_service.dart';
 import 'package:cdax_app/services/favorite_service.dart';
+import 'package:cdax_app/services/api_service.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -14,7 +15,10 @@ import 'providers/dashboard_provider.dart';
 import 'providers/placement_provider.dart';
 import 'providers/user_provider.dart';
 import 'screens/profile/application/profile_provider.dart';
-
+import 'providers/secure_download_provider.dart';
+import 'services/connectivity_service.dart';
+import 'services/cache_service.dart';
+import 'screens/download/downloads_screen.dart';
 /// CDAX App Root
 ///
 /// Uses declarative navigation with GoRouter and applies the shared theme.
@@ -27,7 +31,7 @@ class CdaxApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider<UserProvider>(
           create: (_) => UserProvider(),
-          lazy: false, // Force immediate creation
+          lazy: false,
         ),
         ChangeNotifierProvider(create: (_) => DashboardProvider()),
         ChangeNotifierProvider(create: (_) => AssessmentProvider()),
@@ -35,12 +39,14 @@ class CdaxApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => PlacementProvider()),
         ChangeNotifierProvider(create: (_) => ModuleProvider()),
         ChangeNotifierProvider(create: (_) => ProfileProvider()),
+        ChangeNotifierProvider(create: (_) => SecureDownloadProvider()),
         ChangeNotifierProvider(
           create: (context) => FavoriteProvider(FavoriteService()),
         ),
         ChangeNotifierProvider(
           create: (context) => CartProvider(CartService()),
         ),
+        ChangeNotifierProvider(create: (_) => ConnectivityService()),
       ],
       child: _AppInitializer(),
     );
@@ -54,50 +60,77 @@ class _AppInitializer extends StatefulWidget {
 
 class _AppInitializerState extends State<_AppInitializer> {
   late Future<void> _initializationFuture;
+  bool _isOffline = false;
 
   @override
   void initState() {
     super.initState();
-    // Initialize immediately when widget is created
     _initializationFuture = _initializeApp();
   }
 
   Future<void> _initializeApp() async {
     print('🔄 Initializing app state...');
 
-    // We need to wait for the widget tree to be ready
     await Future.delayed(Duration.zero);
 
     if (!mounted) return;
 
-    // Get the UserProvider instance
-    final userProvider = context.read<UserProvider>();
+    final connectivityService = context.read<ConnectivityService>();
+    await connectivityService.initialize();
 
-    // Initialize authentication state (restores session from storage)
+    final isOnline = connectivityService.isConnected;
+    print('🌐 App initialization - Network status: ${isOnline ? "ONLINE" : "OFFLINE"}');
+
+    final userProvider = context.read<UserProvider>();
     await userProvider.initialize();
+
+    final cacheService = CacheService();
+    final hasCachedUser = await cacheService.hasCachedUser();
 
     print('🎯 App initialization complete');
     print('   ├─ User authenticated: ${userProvider.isAuthenticated}');
     print('   ├─ User ID: ${userProvider.userId}');
     print('   ├─ User Email: ${userProvider.userEmail}');
+    print('   ├─ Has cached user: $hasCachedUser');
+    print('   └─ Network status: ${isOnline ? "ONLINE" : "OFFLINE"}');
 
-    // If user is authenticated, initialize other providers
     if (userProvider.isAuthenticated && userProvider.userId != null) {
       print('🔄 Initializing user-specific providers...');
 
-      // Initialize FavoriteProvider
+      final userId = userProvider.userId!;
+
       final favoriteProvider = context.read<FavoriteProvider>();
-      favoriteProvider.initialize(userProvider.userId!);
+      favoriteProvider.initialize(userId);
 
-      // Initialize CartProvider
       final cartProvider = context.read<CartProvider>();
-      cartProvider.initialize(userProvider.userId!);
+      cartProvider.initialize(userId);
 
-      // Initialize ProfileProvider
       final profileProvider = context.read<ProfileProvider>();
       await profileProvider.fetchProfile();
 
+      final dashboardProvider = context.read<DashboardProvider>();
+      dashboardProvider.setAuthenticationContext(
+        isAuthenticated: true,
+        userId: userId.toString(),
+      );
+
       print('✅ User-specific providers initialized');
+    } else if (hasCachedUser && !isOnline) {
+      print('📴 Offline mode: Using cached user data');
+      _isOffline = true;
+
+      final dashboardProvider = context.read<DashboardProvider>();
+      final hasCachedCourses = await cacheService.hasCachedCourses();
+
+      if (hasCachedCourses) {
+        print('✅ Found cached courses for offline mode');
+        dashboardProvider.setAuthenticationContext(
+          isAuthenticated: true,
+          userId: (await cacheService.getCachedUser())?['id']?.toString(),
+        );
+      }
+    } else {
+      print('ℹ️ No authenticated user found');
     }
   }
 
@@ -117,14 +150,13 @@ class _AppInitializerState extends State<_AppInitializer> {
 
         return Consumer2<UserProvider, DashboardProvider>(
           builder: (context, userProvider, dashboardProvider, child) {
-            // Sync authentication state
             if (dashboardProvider.isAuthenticated != userProvider.isAuthenticated ||
                 dashboardProvider.currentUserId != userProvider.currentUser?.id) {
 
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 dashboardProvider.setAuthenticationContext(
                   isAuthenticated: userProvider.isAuthenticated,
-                  userId: userProvider.currentUser?.id,
+                  userId: userProvider.currentUser?.id?.toString(),
                 );
               });
             }
@@ -197,7 +229,6 @@ class _AppInitializerState extends State<_AppInitializer> {
               const SizedBox(height: 20),
               ElevatedButton(
                 onPressed: () {
-                  // Try to reinitialize
                   setState(() {
                     _initializationFuture = _initializeApp();
                   });

@@ -786,6 +786,123 @@ class AuthService {
     await _debugAllStorage();
   }
 
+  // ========== ADD THESE METHODS TO YOUR EXISTING AuthService ==========
+
+  /// ✅ NEW: Check if JWT token is expired
+  bool isTokenExpired(String token) {
+    try {
+      final parts = token.split('.');
+      if (parts.length != 3) {
+        print('❌ Invalid JWT token format');
+        return true;
+      }
+
+      final payload = parts[1];
+      final normalizedPayload = base64Url.normalize(payload);
+      final decodedBytes = base64Url.decode(normalizedPayload);
+      final decoded = json.decode(utf8.decode(decodedBytes));
+
+      final exp = decoded['exp'] as int?;
+      if (exp == null) {
+        print('❌ No expiration in token');
+        return true;
+      }
+
+      final expiryTime = DateTime.fromMillisecondsSinceEpoch(exp * 1000);
+      final now = DateTime.now();
+      final isExpired = now.isAfter(expiryTime);
+
+      print('🔐 Token Expiry Check:');
+      print('   ├─ Expiry: $expiryTime');
+      print('   ├─ Now: $now');
+      print('   ├─ Is expired: $isExpired');
+      print('   ├─ Time left: ${expiryTime.difference(now)}');
+
+      return isExpired;
+    } catch (e) {
+      print('❌ Error checking token expiry: $e');
+      return true;
+    }
+  }
+
+  /// ✅ NEW: Get valid token with auto-refresh
+  Future<String?> getValidToken() async {
+    try {
+      final token = await _secureStorage.getToken();
+
+      if (token == null || token.isEmpty) {
+        print('❌ No token found in storage');
+        return null;
+      }
+
+      print('🔍 Checking token validity...');
+
+      // Check if token is expired
+      if (isTokenExpired(token)) {
+        print('🔄 Token expired, attempting to refresh...');
+
+        final refreshed = await refreshJWTToken();
+        if (refreshed) {
+          final newToken = await _secureStorage.getToken();
+          print('✅ Token refreshed successfully');
+          return newToken;
+        } else {
+          print('❌ Token refresh failed, clearing auth data...');
+          await clearAllAuthData();
+          return null;
+        }
+      }
+
+      print('✅ Token is valid');
+      return token;
+    } catch (e) {
+      print('❌ Error getting valid token: $e');
+      return null;
+    }
+  }
+
+  // /// ✅ FIXED: refreshJWTToken method - make it public and fix logic
+  // Future<bool> refreshJWTToken() async {
+  //   try {
+  //     final oldToken = await _secureStorage.getToken();
+  //     if (oldToken == null || oldToken.isEmpty) {
+  //       print('❌ No token to refresh');
+  //       return false;
+  //     }
+  //
+  //     print('🔄 Refreshing token...');
+  //
+  //     final response = await _httpService.post<Map<String, dynamic>>(
+  //       '/api/auth/jwt/refresh',  // Make sure this endpoint exists
+  //           (data) => data as Map<String, dynamic>,
+  //       body: {'token': oldToken},
+  //     );
+  //
+  //     if (response.isSuccess && response.data != null && response.data!['success'] == true) {
+  //       final newToken = response.data!['accessToken'] ?? response.data!['token'];
+  //       if (newToken != null && newToken.isNotEmpty) {
+  //         await _secureStorage.saveToken(newToken);
+  //         print('✅ Token refreshed successfully');
+  //
+  //         // Also update user data if provided in refresh response
+  //         if (response.data!['user'] != null) {
+  //           final user = UserModel.fromJson(response.data!['user']);
+  //           await _persistUserData(user);
+  //         }
+  //
+  //         return true;
+  //       }
+  //     }
+  //
+  //     print('❌ Token refresh failed: ${response.errorMessage}');
+  //     print('   ├─ Response: ${response.data}');
+  //     return false;
+  //   } catch (e) {
+  //     print('❌ Token refresh exception: $e');
+  //     return false;
+  //   }
+  // }
+
   // ==================== ADDITIONAL HELPER METHODS ====================
 
   // Check if user is logged in (simple synchronous check)

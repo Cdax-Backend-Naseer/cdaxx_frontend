@@ -6,6 +6,7 @@ import '../../courses/presentation/course_list_screen.dart';
 import 'modules_screen.dart';
 import '../../support/presentation/support_screen.dart';
 import '../../profile/presentation/profile_screen.dart';
+import '../../download/downloads_screen.dart'; // ADD THIS IMPORT
 
 /// Gradient background constants from login screen
 const LinearGradient _kDashboardBgGradient = LinearGradient(
@@ -42,7 +43,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   void _onTap(int index) {
-    if (_currentIndex == index) return; // Prevent same-tap rebuilds
+    if (_currentIndex == index) return;
 
     setState(() => _currentIndex = index);
     _pageController.animateToPage(
@@ -53,7 +54,6 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   void _onPageChanged(int index) {
-    // Only update state if the index actually changed
     if (_currentIndex != index) {
       setState(() => _currentIndex = index);
     }
@@ -61,12 +61,12 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   @override
   Widget build(BuildContext context) {
-    super.build(context); // Required for AutomaticKeepAliveClientMixin
+    super.build(context);
 
     print('📱 DashboardScreen: Building - Current index: $_currentIndex');
 
     return Scaffold(
-      backgroundColor: const Color(0xFF020617), // Solid background color
+      backgroundColor: const Color(0xFF020617),
       body: Container(
         decoration: const BoxDecoration(gradient: _kDashboardBgGradient),
         child: PageView(
@@ -74,28 +74,29 @@ class _DashboardScreenState extends State<DashboardScreen>
           physics: const BouncingScrollPhysics(),
           onPageChanged: _onPageChanged,
           children: [
-            // Wrap each page with AutomaticKeepAlive to preserve state
-            // Pass callback to change tab from child screens
+            // Tab 0: Home
             _KeepAlivePage(
               child: HomeScreen(
                 onNavigateToTab: _onTap,
               ),
             ),
+            // Tab 1: Courses
             _KeepAlivePage(
               child: CourseListScreen(
                 onNavigateToTab: _onTap,
               ),
             ),
+            // Tab 2: Modules
             _KeepAlivePage(
               child: ModulesScreen(
                 onNavigateToTab: _onTap,
               ),
             ),
+            // Tab 3: Downloads (NEW - replaced Support)
             _KeepAlivePage(
-              child: SupportScreen(
-                onNavigateToTab: _onTap,
-              ),
+              child: const DownloadsScreen(),
             ),
+            // Tab 4: Profile
             _KeepAlivePage(
               child: ProfileScreen(
                 onNavigateToTab: _onTap,
@@ -142,7 +143,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             type: BottomNavigationBarType.fixed,
             backgroundColor: Colors.transparent,
             elevation: 0,
-            selectedItemColor: const Color(0xFF38BDF8), // Primary accent color
+            selectedItemColor: const Color(0xFF38BDF8),
             unselectedItemColor: Colors.white.withOpacity(0.6),
             selectedLabelStyle: TextStyle(
               fontSize: 12,
@@ -157,6 +158,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             showSelectedLabels: true,
             showUnselectedLabels: true,
             items: [
+              // Tab 0: Home
               BottomNavigationBarItem(
                 icon: Container(
                   padding: const EdgeInsets.all(6),
@@ -173,6 +175,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                 ),
                 label: 'Home',
               ),
+              // Tab 1: Courses
               BottomNavigationBarItem(
                 icon: Container(
                   padding: const EdgeInsets.all(6),
@@ -191,6 +194,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                 ),
                 label: 'Courses',
               ),
+              // Tab 2: Modules
               BottomNavigationBarItem(
                 icon: Container(
                   padding: const EdgeInsets.all(6),
@@ -209,6 +213,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                 ),
                 label: 'Modules',
               ),
+              // Tab 3: Downloads (NEW)
               BottomNavigationBarItem(
                 icon: Container(
                   padding: const EdgeInsets.all(6),
@@ -220,13 +225,14 @@ class _DashboardScreenState extends State<DashboardScreen>
                   ),
                   child: Icon(
                     _currentIndex == 3
-                        ? Icons.headset_mic
-                        : Icons.headset_mic_outlined,
+                        ? Icons.download
+                        : Icons.download_outlined,
                     size: 24,
                   ),
                 ),
-                label: 'Support',
+                label: 'Downloads',
               ),
+              // Tab 4: Profile
               BottomNavigationBarItem(
                 icon: Container(
                   padding: const EdgeInsets.all(6),

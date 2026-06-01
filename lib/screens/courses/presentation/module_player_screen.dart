@@ -196,9 +196,12 @@ class _ModulePlayerScreenState extends State<ModulePlayerScreen> {
                               extra: {
                                 'userId': widget.userId,
                                 'videoId': video.id,
+                                'videoTitle': video.title,           // ADD THIS
                                 'courseId': widget.courseId,
+                                'courseTitle': course.title,         // ADD THIS
                                 'moduleId': widget.moduleId,
                                 'videoUrl': video.videoUrl,
+                                'moduleName': currentModule.title,
                               },
                             );
                           },

@@ -2,12 +2,9 @@
 import 'dart:typed_data';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-
-// Adjust imports based on your project structure
-import '../config/backend_config.dart'; // or '../config/api_constants.dart'
+import '../config/backend_config.dart';
 import '../core/api_response.dart';
 import '../models/certificate/certificate_model.dart';
-import '../models/certificate/certificate_data.dart';
 
 class CertificateService {
   final String baseUrl;

@@ -1,47 +1,70 @@
-/// Backend Course Service - Fixed Version
 import 'dart:convert';
 import '../models/backend/course_model.dart';
 import '../services/http_service.dart';
+import 'cache_service.dart';
+import 'connectivity_service.dart';
 
 class BackendCourseService {
   final HttpService _httpService = HttpService();
+  final CacheService _cacheService = CacheService();
+  final ConnectivityService _connectivityService = ConnectivityService();
 
   /// Get all courses for a user with their progress/unlock status
   /// Endpoint: GET /api/courses?userId={userId}
   /// Returns: {"data": [CourseModel...]}
-  Future<ApiResponse<List<CourseModel>>> getCoursesForUser(int userId) async {
-    // FIX: Remove /api prefix since it's already in base URL
-    final endpoint = '/courses?userId=$userId';  // Changed from '/api/courses'
+  Future<ApiResponse<List<CourseModel>>> getCoursesForUser(int userId, {bool forceRefresh = false}) async {
+    final endpoint = '/courses?userId=$userId';
+    final isOnline = _connectivityService.isConnected;
 
     print('\n📚 ================================');
     print('📚 Fetching courses for user from backend...');
     print('📚 User ID: $userId');
-    print('📚 Endpoint: $endpoint');  // Updated logging
+    print('📚 Online: $isOnline');
+    print('📚 Force Refresh: $forceRefresh');
+    print('📚 Endpoint: $endpoint');
     print('📚 ================================\n');
+
+    // Try cache first if not forcing refresh and offline
+    if (!forceRefresh && !isOnline) {
+      final cachedCourses = await _loadCoursesFromCache();
+      if (cachedCourses != null) {
+        print('✅ Loaded ${cachedCourses.length} courses from cache (OFFLINE MODE)');
+        return ApiResponse.success(cachedCourses);
+      }
+    }
 
     try {
       print('🔍 Step 1: Making HTTP request to: $endpoint');
       final response = await _httpService.get<Map<String, dynamic>>(
-        endpoint,  // Use the fixed endpoint
+        endpoint,
             (data) => data,
       );
 
       print('\n🔍 Step 2: HTTP Response Received');
       print('🔍 Response isSuccess: ${response.isSuccess}');
 
-      // FIX: Use response.error instead of response.errorMessage
       final errorMsg = response.error ?? response.errorMessage ?? 'Unknown error';
       print('🔍 Response error: $errorMsg');
       print('🔍 Response data type: ${response.data?.runtimeType}');
 
       if (!response.isSuccess) {
         print('❌ HTTP request failed: $errorMsg');
-        // FIX: Use the correct error field
+        // Try cache as fallback
+        final cachedCourses = await _loadCoursesFromCache();
+        if (cachedCourses != null) {
+          print('⚠️ Using cached courses as fallback');
+          return ApiResponse.success(cachedCourses);
+        }
         return ApiResponse.error(errorMsg);
       }
 
       if (response.data == null) {
         print('❌ Response data is null');
+        final cachedCourses = await _loadCoursesFromCache();
+        if (cachedCourses != null) {
+          print('⚠️ Using cached courses as fallback');
+          return ApiResponse.success(cachedCourses);
+        }
         return ApiResponse.error('No data received from server');
       }
 
@@ -128,8 +151,6 @@ class BackendCourseService {
           print('\n❌ Problematic JSON:');
           print(JsonEncoder.withIndent('  ').convert(courseJson));
           print('${'─' * 40}');
-
-          // Try to continue with other courses
           continue;
         }
       }
@@ -137,10 +158,12 @@ class BackendCourseService {
       if (courses.isEmpty) {
         print('\n❌❌❌ CRITICAL ERROR ❌❌❌');
         print('❌ No courses could be parsed successfully');
-        print('❌ Please check the field names and types above');
-        print('❌ The backend response structure likely doesn\'t match CourseModel');
         return ApiResponse.error('Failed to parse any courses data');
       }
+
+      // Cache the courses
+      await _cacheCourses(courses);
+      await _cacheService.updateLastSync();
 
       print('\n🎉 ================================');
       print('🎉 FINAL RESULT:');
@@ -165,21 +188,85 @@ class BackendCourseService {
       print('❌ Error message: $e');
       print('❌ Stack trace:');
       print(stackTrace);
+
+      // Try cache as fallback
+      final cachedCourses = await _loadCoursesFromCache();
+      if (cachedCourses != null) {
+        print('⚠️ Using cached courses as error fallback');
+        return ApiResponse.success(cachedCourses);
+      }
       return ApiResponse.error('Unexpected error: ${e.toString()}');
+    }
+  }
+
+  /// Load courses from cache (helper method)
+  Future<List<CourseModel>?> _loadCoursesFromCache() async {
+    print('💾 Loading courses from cache...');
+
+    final cachedCourses = await _cacheService.getCachedCourses();
+
+    if (cachedCourses != null && cachedCourses.isNotEmpty) {
+      try {
+        final List<CourseModel> courses = [];
+        for (var courseJson in cachedCourses) {
+          try {
+            final course = CourseModel.fromJson(courseJson);
+            courses.add(course);
+          } catch (e) {
+            print('⚠️ Error parsing cached course: $e');
+          }
+        }
+
+        if (courses.isNotEmpty) {
+          print('✅ Loaded ${courses.length} courses from cache');
+          return courses;
+        }
+      } catch (e) {
+        print('❌ Error processing cached courses: $e');
+      }
+    }
+
+    print('⚠️ No cached courses found');
+    return null;
+  }
+
+  /// Cache courses (helper method)
+  Future<void> _cacheCourses(List<CourseModel> courses) async {
+    try {
+      final coursesJson = courses.map((c) => c.toJson()).toList();
+      await _cacheService.cacheCourses(coursesJson);
+      print('💾 ${courses.length} courses cached');
+    } catch (e) {
+      print('❌ Failed to cache courses: $e');
     }
   }
 
   /// Get a single course for a user with their progress/unlock status
   /// Endpoint: GET /api/courses/{id}?userId={userId}
   /// Returns: {"data": CourseModel}
-  Future<ApiResponse<CourseModel>> getCourseForUser(int userId, int courseId) async {
-    // FIX: Remove /api prefix
-    final endpoint = '/courses/$courseId?userId=$userId';  // Changed from '/api/courses/$courseId'
+  Future<ApiResponse<CourseModel>> getCourseForUser(int userId, int courseId, {bool forceRefresh = false}) async {
+    final endpoint = '/courses/$courseId?userId=$userId';
+    final isOnline = _connectivityService.isConnected;
 
     print('\n📖 Fetching single course for user from backend...');
     print('   ├─ User ID: $userId');
     print('   ├─ Course ID: $courseId');
+    print('   ├─ Online: $isOnline');
     print('   └─ Endpoint: $endpoint');
+
+    // Try cache first if offline
+    if (!forceRefresh && !isOnline) {
+      final cachedCourse = await _cacheService.getCachedCourseDetails(courseId.toString());
+      if (cachedCourse != null) {
+        try {
+          final course = CourseModel.fromJson(cachedCourse);
+          print('   ✅ Loaded course from cache: ${course.title}');
+          return ApiResponse.success(course);
+        } catch (e) {
+          print('   ❌ Error parsing cached course: $e');
+        }
+      }
+    }
 
     try {
       final response = await _httpService.get<Map<String, dynamic>>(
@@ -191,9 +278,19 @@ class BackendCourseService {
         final courseData = response.data!['data'];
         if (courseData != null) {
           final course = CourseModel.fromJson(courseData);
+          // Cache for offline
+          await _cacheService.cacheCourseDetails(courseId.toString(), course.toJson());
           print('   ✅ Loaded course: ${course.title}');
           return ApiResponse.success(course);
         }
+      }
+
+      // Try cache as fallback
+      final cachedCourse = await _cacheService.getCachedCourseDetails(courseId.toString());
+      if (cachedCourse != null) {
+        final course = CourseModel.fromJson(cachedCourse);
+        print('   ⚠️ Using cached course as fallback: ${course.title}');
+        return ApiResponse.success(course);
       }
 
       print('   ❌ Failed to parse course data');
@@ -201,6 +298,12 @@ class BackendCourseService {
 
     } catch (e) {
       print('   ❌ Error fetching course: $e');
+      final cachedCourse = await _cacheService.getCachedCourseDetails(courseId.toString());
+      if (cachedCourse != null) {
+        final course = CourseModel.fromJson(cachedCourse);
+        print('   ⚠️ Using cached course as error fallback: ${course.title}');
+        return ApiResponse.success(course);
+      }
       return ApiResponse.error('Failed to load course: ${e.toString()}');
     }
   }
@@ -209,8 +312,11 @@ class BackendCourseService {
   /// Endpoint: POST /api/purchase?userId={userId}&courseId={courseId}
   /// Returns: {"message": "Purchase successful"}
   Future<ApiResponse<String>> purchaseCourse(int userId, int courseId) async {
-    // FIX: Remove /api prefix
-    final endpoint = '/purchase?userId=$userId&courseId=$courseId';  // Changed from '/api/purchase'
+    final endpoint = '/purchase?userId=$userId&courseId=$courseId';
+
+    if (!_connectivityService.isConnected) {
+      return ApiResponse.error('Cannot purchase: No internet connection');
+    }
 
     print('\n💳 Purchasing course...');
     print('   ├─ User ID: $userId');
@@ -226,6 +332,10 @@ class BackendCourseService {
       if (response.isSuccess && response.data != null) {
         final message = response.data!['message']?.toString() ?? 'Purchase successful';
         print('   ✅ $message');
+
+        // Clear cached courses so they refresh on next load
+        await _cacheService.clearCoursesCache();
+
         return ApiResponse.success(message);
       }
 
@@ -247,10 +357,13 @@ class BackendCourseService {
     int? courseId,
     int? moduleId,
   }) async {
-    // FIX: Remove /api prefix
-    String endpoint = '/videos/$videoId/complete?userId=$userId';  // Changed from '/api/videos/$videoId/complete'
+    String endpoint = '/videos/$videoId/complete?userId=$userId';
     if (courseId != null) endpoint += '&courseId=$courseId';
     if (moduleId != null) endpoint += '&moduleId=$moduleId';
+
+    if (!_connectivityService.isConnected) {
+      return ApiResponse.error('Cannot mark complete: No internet connection');
+    }
 
     print('\n✅ Marking video as completed...');
     print('   ├─ User ID: $userId');
@@ -268,6 +381,12 @@ class BackendCourseService {
       if (response.isSuccess && response.data != null) {
         final success = response.data!['success'] == true;
         print('   ${success ? '✅' : '❌'} Video completion: $success');
+
+        // Clear cached courses to refresh progress
+        if (success && courseId != null) {
+          await _cacheService.clearCoursesCache();
+        }
+
         return ApiResponse.success(success);
       }
 
@@ -288,8 +407,11 @@ class BackendCourseService {
     required int moduleId,
     required int courseId,
   }) async {
-    // FIX: Remove /api prefix
-    final endpoint = '/modules/$moduleId/unlock-next?userId=$userId&courseId=$courseId';  // Changed from '/api/modules/$moduleId/unlock-next'
+    final endpoint = '/modules/$moduleId/unlock-next?userId=$userId&courseId=$courseId';
+
+    if (!_connectivityService.isConnected) {
+      return ApiResponse.error('Cannot unlock: No internet connection');
+    }
 
     print('\n🔓 Unlocking next module...');
     print('   ├─ User ID: $userId');
@@ -306,6 +428,12 @@ class BackendCourseService {
       if (response.isSuccess && response.data != null) {
         final success = response.data!['success'] == true;
         print('   ${success ? '✅' : '❌'} Module unlock: $success');
+
+        // Clear cached courses to refresh module unlock status
+        if (success) {
+          await _cacheService.clearCoursesCache();
+        }
+
         return ApiResponse.success(success);
       }
 
@@ -318,7 +446,7 @@ class BackendCourseService {
     }
   }
 
-  // ==================== NEW SEARCH METHODS ====================
+  // ==================== SEARCH METHODS (with offline support) ====================
 
   /// NEW: Search courses by keyword (title AND tags)
   /// Endpoint: GET /api/courses?search={keyword}&userId={userId}
@@ -337,6 +465,21 @@ class BackendCourseService {
     print('🔍 Endpoint: $endpoint');
     print('🔍 Query params: $queryParams');
     print('🔍 ================================\n');
+
+    // Offline search - use cached courses
+    if (!_connectivityService.isConnected) {
+      print('📴 Offline mode - searching in cached courses');
+      final cachedCourses = await _loadCoursesFromCache();
+      if (cachedCourses != null) {
+        final filtered = cachedCourses.where((c) =>
+        c.title.toLowerCase().contains(keyword.toLowerCase()) ||
+            (c.description?.toLowerCase().contains(keyword.toLowerCase()) ?? false)
+        ).toList();
+        print('🔍 Offline search: found ${filtered.length} matches for "$keyword"');
+        return ApiResponse.success(filtered);
+      }
+      return ApiResponse.error('No internet connection and no cached data');
+    }
 
     try {
       print('🔍 Step 1: Making HTTP request');
@@ -430,6 +573,11 @@ class BackendCourseService {
     final endpoint = '/courses/search/suggestions';
     final queryParams = {'query': query};
 
+    if (!_connectivityService.isConnected) {
+      print('📴 Offline mode - no suggestions available');
+      return ApiResponse.success([]);
+    }
+
     print('\n💡 Getting search suggestions...');
     print('💡 Query: "$query"');
     print('💡 Endpoint: $endpoint');
@@ -465,6 +613,11 @@ class BackendCourseService {
   /// Returns: {"tags": ["tag1", "tag2", ...]}
   Future<ApiResponse<List<String>>> getPopularTags() async {
     final endpoint = '/courses/tags/popular';
+
+    if (!_connectivityService.isConnected) {
+      print('📴 Offline mode - no tags available');
+      return ApiResponse.success([]);
+    }
 
     print('\n🏷️ Getting popular tags...');
     print('🏷️ Endpoint: $endpoint');
@@ -502,6 +655,20 @@ class BackendCourseService {
     final Map<String, String> queryParams = {};
     if (userId != null) {
       queryParams['userId'] = userId.toString();
+    }
+
+    // Offline search in cached courses
+    if (!_connectivityService.isConnected) {
+      print('📴 Offline mode - searching cached courses for tag: "$tag"');
+      final cachedCourses = await _loadCoursesFromCache();
+      if (cachedCourses != null) {
+        final filtered = cachedCourses.where((c) =>
+        c.tags?.contains(tag) ?? false
+        ).toList();
+        print('🏷️ Offline: found ${filtered.length} courses with tag "$tag"');
+        return ApiResponse.success(filtered);
+      }
+      return ApiResponse.error('No internet connection');
     }
 
     print('\n🏷️ Getting courses by tag...');
@@ -624,6 +791,20 @@ class BackendCourseService {
 
   /// NEW: Get all courses with optional user ID
   Future<ApiResponse<List<CourseModel>>> getAllCourses({int? userId}) async {
-    return await searchCourses('', userId: userId);
+    if (userId != null) {
+      return await getCoursesForUser(userId);
+    }
+    // Try to load from cache if no userId
+    final cachedCourses = await _loadCoursesFromCache();
+    if (cachedCourses != null) {
+      return ApiResponse.success(cachedCourses);
+    }
+    return ApiResponse.error('User ID required and no cached data');
+  }
+
+  /// Clear all cached data (for logout)
+  Future<void> clearCache() async {
+    await _cacheService.clearAllCache();
+    print('🗑️ All course cache cleared');
   }
 }

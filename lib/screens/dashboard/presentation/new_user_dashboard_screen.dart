@@ -11,8 +11,8 @@ const LinearGradient _kDashboardBgGradient = LinearGradient(
   begin: Alignment.topCenter,
   end: Alignment.bottomCenter,
   colors: [
-    Color(0xFF020617), // Rich dark blue/navy
-    Color(0xFF0F172A), // Slightly lighter dark blue
+    Color(0xFF020617),
+    Color(0xFF0F172A),
   ],
 );
 
